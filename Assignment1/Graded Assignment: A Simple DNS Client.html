@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<!-- 2026-02-24 Tue 21:34 -->
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Graded Assignment: A Simple DNS Client</title>
+<meta name="author" content="Antonio Carzaniga" />
+<meta name="generator" content="Org Mode" />
+<style type="text/css">
+ <!--/*--><![CDATA[/*><!--*/
+ body { font-family: "Noto Sans", Helvetica, sans-serif;
+	font-size: medium;
+	padding: 2em;
+	margin: auto;
+	max-width: 50em; }
+ .title  { text-align: left;
+	   padding-bottom: 0.5ex;
+	   margin-bottom: 2ex;
+	   border-bottom: 2pt solid #000000; }
+.subtitle { text-align: right; font-size: medium; font-weight: bold; margin-top:0; }
+.todo   { font-family: "Hack", monospace; color: red; }
+.done   { font-family: "Hack", monospace; color: green; }
+.priority { font-family: "Hack", monospace; color: orange; }
+.tag    { background-color: #eeeeee; font-family: "Hack", monospace;
+	  padding: 2px; font-size: 80%; font-weight: normal; }
+.timestamp { color: #bebebe; }
+.timestamp-kwd { color: #5f9ea0; }
+.org-right  { margin-left: auto; margin-right: 0px;  text-align: right; }
+.org-left   { margin-left: 0px;  margin-right: auto; text-align: left; }
+.org-center { margin-left: auto; margin-right: auto; text-align: center; }
+.underline { text-decoration: underline; }
+h2 { border-top: 1pt solid #000000;
+     margin-top: 3ex; }
+#postamble p, #preamble p { font-size: 90%; margin: .2em; }
+p.verse { margin-left: 3%; }
+pre {
+    border: 1px solid #cccccc;
+    box-shadow: 3px 3px 3px #eeeeee;
+    padding: 8pt;
+    font-family: "Hack", monospace;
+    overflow: auto;
+    margin: 0;
+    background-color: #e8e8e8;
+}
+pre.src {
+    position: relative;
+    overflow: auto;
+}
+pre.example {
+    position: relative;
+    overflow: auto;
+    border-style: solid;
+    border-top-style: none;
+    border-bottom-style: none;
+    border-left-style: solid;
+    border-right-style: solid;
+    border-width: 6pt;
+    border-color: #d0d0d0;
+}
+code { 
+    font-family: "Hack", monospace;
+    padding-left: 1pt;
+    padding-right: 1pt;
+    background-color: #ebebeb;
+}
+a:link {
+    color: #603000;
+    text-decoration: none;
+    font-weight: bold; 
+}
+a:visited {
+    color: #603010;
+    text-decoration: none;
+    font-weight: bold; 
+}
+table { margin: auto; border-collapse:collapse; }
+thead { background-color: #f0f0f0; font-weight: bold; }
+caption.t-above { caption-side: top; }
+caption.t-bottom { caption-side: bottom; }
+td, th { vertical-align:top; }
+th.org-right  { text-align: center;  }
+th.org-left   { text-align: center;   }
+th.org-center { text-align: center; }
+td.org-right  { text-align: right;  }
+td.org-left   { text-align: left;   }
+td.org-center { text-align: center; }
+dt { font-weight: bold; }
+.footpara { display: inline; }
+.footdef  { margin-bottom: 1em; }
+.figure { padding: 1em; }
+.figure p { text-align: center; }
+.equation-container {
+    display: table;
+    text-align: center;
+    width: 100%;
+}
+.equation {
+    vertical-align: middle;
+}
+.equation-label {
+    display: table-cell;
+    text-align: right;
+    vertical-align: middle;
+}
+.inlinetask {
+    padding: 10px;
+    border: 2px solid gray;
+    margin: 10px;
+    background: #ffffcc;
+}
+#org-div-home-and-up { text-align: right; font-size: 70%; white-space: nowrap; }
+textarea { overflow-x: auto; }
+.linenr { font-size: smaller }
+.code-highlighted { background-color: #ffff00; }
+.org-info-js_info-navigation { border-style: none; }
+#org-info-js_console-label { font-size: 10px; font-weight: bold; white-space: nowrap; }
+.org-info-js_search-highlight { background-color: #ffff00; color: #000000; font-weight: bold; }
+.org-svg { }
+.face-builtin { color: #338033; }
+.face-comment { color: #5C7A99; }
+.face-comment-delimiter { color: #5C7A99; }
+.face-constant { color: #335980; }
+.face-doc { color: #80335A; }
+.face-function-name { color: #3D3380; font-weight: bold; }
+.face-keyword { color: #000000; font-weight: bold; }
+.face-preprocessor { color: #338033; }
+.face-string { color: #648033; font-style: italic; }
+.face-type { color: #803333; }
+.face-variable-name { color: #333380; }
+  /*]]>*/-->
+</style>
+</head>
+<body>
+<div id="content" class="content">
+<h1 class="title">Graded Assignment: A Simple DNS Client</h1>
+<p>
+In a single source file called <code>dnslookup.c</code>, write a C program to
+query the Domain Name System (DNS).  The program must operate as a DNS
+client, meaning that it must issue a DNS request to a given DNS
+resolver and then receive the corresponding response.  The program
+must then print the relevant data obtained from the response onto the
+standard output.  The program should behave in a similar way as the
+<code>dig</code> or the <code>nslookup</code> utilities.  The address of the resolver and
+the query (as well as other parameters) are given as command-line
+arguments.  The general usage of the program should be as follows:
+</p>
+
+<pre class="example" id="org2294a2d">
+Usage: ./dnslookup [options] &lt;query&gt; [TYPE]
+
+Arguments:
+ query    The DNS query to solve
+ TYPE     The DNS record type for the query. Supported values are:
+          A, AAAA, MX, CNAME, NS, TXT (default: A)
+
+Options:
+ -s &lt;server&gt;, --server &lt;server&gt;
+                   The IPv4 address of the DNS resolver (default: 127.0.0.53)
+ -r &lt;retries&gt;, --retries &lt;retries&gt;
+                   The maximum number of retries before declaring failure (default: 3)
+ -t &lt;timeout&gt;, --timeout &lt;timeout&gt;
+                   The timeout for receiving the DNS reply in seconds (default: 1s)
+ -h, --help
+                   Display this help and exit
+</pre>
+
+<p>
+The program must allow the user to submit a single query.  The <i>type</i>
+of the query is <code>A</code>, <code>AAAA</code>, <code>MX</code>, <code>CNAME</code>, <code>NS</code> or <code>TXT</code>.  The
+default type is <code>A</code>.
+</p>
+
+<p>
+The purpose of this exercise is to learn how to operate directly with
+network packets and with a specific application-level protocol such as
+DNS.  Therefore, you are <i>not</i> allowed to use any of the UNIX standard
+functions for address resolution, such as <code>getaddrinfo</code>, nor any other
+external library.  Instead, you must explicitly create properly
+formatted DNS messages, parse incoming DNS messages, and exchange such
+messages with the given DNS resolver through a standard UDP socket.
+</p>
+
+<p>
+You may assume that the resolver is <i>recursive,</i> so you are not
+required to implement the full, iterative DNS resolution protocol. For
+the formatting of DNS messages, you may refer to <a href="https://datatracker.ietf.org/doc/html/rfc1035">RFC 1035</a> and <a href="https://datatracker.ietf.org/doc/html/rfc3596">RFC
+3596</a>.  You are not required to implement DNS extensions.  You may also
+assume that the reply is not truncated.
+</p>
+
+<p>
+The program must handle communication failures at least to a minimal
+extent.  In particular, if the program does not receive an answer from
+the resolver, the program must resubmit the same query.  The <code>-r</code> or
+<code>--retries</code> command-line option determines the maximum number of
+attempts.  By default, the program reissues the same query at most
+three times.  The program determines that a request or the
+corresponding reply were lost after a set timeout.  The timeout can be
+set using the the <code>-t</code> or <code>--timeout</code> command-line options.  The
+dafult timeout is one second.  You can implement a timeout mechanism
+by using the <code>select</code> family of functions, or by setting a timeout
+option on the socket through with the <code>setsockopt</code> function.
+</p>
+
+<p>
+By default, the address of the DNS resolver must be <code>127.0.0.53</code>. The
+reason is that systems with <code>systemd-resolved</code> have a DNS resolver for
+local applications listening on a the address <code>127.0.0.53</code> (see the
+<a href="https://man.archlinux.org/man/systemd-resolved.8.en">systemd-resolved man pages</a>). The user should also be able to specify
+the IPv4 address of a DNS resolver with the <code>-s</code> or <code>--server</code>
+command-line options.
+</p>
+
+<p>
+Once it receives a response from the DNS resolver, the program must
+display the content of the DNS response message by printing the
+relevant information onto the standard output.  The type of
+information is defined by the structure of the DNS reply as specified
+in the standard documentation (<a href="https://datatracker.ietf.org/doc/html/rfc1035">RFC 1035</a>). In essence, a DNS message
+contains zero or more entries in each of four sections, namely
+<i>questions,</i> <i>answers,</i> <i>name servers,</i> and <i>additional records.</i> The
+program must first print a summary of the DNS reply.  The, for each
+non-empty section, the program must print all the entries in that
+section.  The output format is defined by-example in the following use
+cases.
+</p>
+
+<p>
+The output of a DNS query for a record of type <code>A</code> on <code>google.com</code>
+must look as follows:
+</p>
+
+<pre class="example" id="org10910df">
+$ ./dnslookup google.com A 
+QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 0
+
+QUESTION SECTION:
+google.com.             IN      A
+
+ANSWER SECTION:
+google.com.     179     IN      A       142.251.140.110
+
+</pre>
+
+<p>
+Notice that a single query might result in multiple DNS resource
+records.  The program must print all the resource records. This is
+exemplified in the following case of a <code>TXT</code> query on <code>google.com</code>:
+</p>
+
+<pre class="example" id="org7bbe2c9">
+$ ./dnslookup google.com TXT
+QUERY: 1, ANSWER: 7, AUTHORITY: 0, ADDITIONAL: 0
+
+QUESTION SECTION:
+google.com.             IN      TXT
+
+ANSWER SECTION:
+google.com.     300     IN      TXT     google-site-verification=wD8N7i1JTNTkezJ49swvWW48f8_9xveREV4oB-0Hf5o
+google.com.     300     IN      TXT     onetrust-domain-verification=6d685f1d41a94696ad7ef771f68993e0
+google.com.     300     IN      TXT     google-site-verification=4ibFUgB-wXLQ_S7vsXVomSTVamuOXBiVAzpR5IZ87D0
+google.com.     300     IN      TXT     v=spf1 include:_spf.google.com ~all
+google.com.     300     IN      TXT     docusign=05958488-4752-4ef2-95eb-aa7ba8a3bd0e
+google.com.     300     IN      TXT     MS=E4A68B9AB2BB9670BCE15412F62916164C0B20BB
+google.com.     300     IN      TXT     docusign=1b0a6754-49b1-4db5-8540-d2c12664b289
+
+</pre>
+
+<p>
+The name resolution for a record of type <code>MX</code> on <code>google.com</code> should
+look as follows:
+</p>
+
+<pre class="example" id="orga8a201c">
+$ ./dnslookup google.com MX
+QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 9
+
+QUESTION SECTION:
+google.com.             IN      MX
+
+ANSWER SECTION:
+google.com.     275     IN      MX      10      smtp.google.com
+
+ADDITIONAL SECTION:
+smtp.google.com.        119     IN      A       64.233.166.26
+smtp.google.com.        119     IN      A       64.233.167.26
+smtp.google.com.        119     IN      A       64.233.167.27
+smtp.google.com.        119     IN      A       74.125.206.26
+smtp.google.com.        119     IN      A       74.125.206.27
+smtp.google.com.        129     IN      AAAA    42.0.20.80
+smtp.google.com.        129     IN      AAAA    42.0.20.80
+smtp.google.com.        129     IN      AAAA    42.0.20.80
+smtp.google.com.        129     IN      AAAA    42.0.20.80
+
+</pre>
+
+<p>
+The name resolution for a record of type <code>NS</code> on <code>google.com</code> could
+look as follows:
+</p>
+
+<pre class="example" id="orgc514070">
+$ ./dnslookup google.com NS
+QUERY: 1, ANSWER: 4, AUTHORITY: 0, ADDITIONAL: 8
+
+QUESTION SECTION:
+google.com.             IN      NS
+
+ANSWER SECTION:
+google.com.     171620  IN      NS      ns1.google.com
+google.com.     171620  IN      NS      ns2.google.com
+google.com.     171620  IN      NS      ns3.google.com
+google.com.     171620  IN      NS      ns4.google.com
+
+ADDITIONAL SECTION:
+ns1.google.com. 171691  IN      A       216.239.32.10
+ns2.google.com. 171986  IN      A       216.239.34.10
+ns3.google.com. 172013  IN      A       216.239.36.10
+ns4.google.com. 171811  IN      A       216.239.38.10
+ns1.google.com. 177984  IN      AAAA    32.1.72.96
+ns2.google.com. 250604  IN      AAAA    32.1.72.96
+ns3.google.com. 259018  IN      AAAA    32.1.72.96
+ns4.google.com. 252769  IN      AAAA    32.1.72.96
+
+</pre>
+
+<p>
+The name resolution for a record of type <code>CNAME</code> on <code>www.umass.edu</code>
+could look as follows:
+</p>
+
+<pre class="example" id="org5799d75">
+$ ./dnslookup www.umass.edu CNAME
+QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 0
+
+QUESTION SECTION:
+www.umass.edu.          IN      CNAME
+
+ANSWER SECTION:
+www.umass.edu.  3572    IN      CNAME   umass.edu.cdn.cloudflare.net
+
+</pre>
+</div>
+</body>
+</html>
