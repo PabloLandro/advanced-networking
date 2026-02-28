@@ -1,21 +1,4 @@
 /*
-We will implement a protocol to transmit a set of binary strings from
-A to B using UDP
-
-We will establish the following constraints:
-    - max_labels_len   = 63
-    - max_names_len = 255
-    - max_msg_len   = 512
-
-Out message structure will be the following:
-    - Number of strings (1 byte).
-    ...
-    - Length of i-th string (2 bytes).
-    - Content of i-th string.
-    ...
-*/
-
-/*
 Usage:
     ./program [options] <query> [TYPE]
 
@@ -46,12 +29,12 @@ Usage:
 #define MAX_MSG_LEN 10000
 
 int get_type(const char *type_str) {
-    // We use strcasecmp to make it case-insensitive (e.g., "mx" or "MX")
-    if (strcasecmp(type_str, "A") == 0)      return 1;
-    if (strcasecmp(type_str, "NS") == 0)     return 2;
-    if (strcasecmp(type_str, "CNAME") == 0)  return 5;
-    if (strcasecmp(type_str, "MX") == 0)     return 15;
-    if (strcasecmp(type_str, "TXT") == 0)    return 16;
+    if (strcmp(type_str, "A") == 0)      return 1;
+    if (strcmp(type_str, "NS") == 0)     return 2;
+    if (strcmp(type_str, "CNAME") == 0)  return 5;
+    if (strcmp(type_str, "MX") == 0)     return 15;
+    if (strcmp(type_str, "TXT") == 0)    return 16;
+    if (strcmp(type_str, "AAAA") == 0)    return 28;
 
     return 1; // Return -1 if the type is unknown
 }
@@ -115,8 +98,7 @@ int print_rr(unsigned char *ptr, char *domain) {
 	char ans_name[256];
 	unsigned char *original = ptr;
 
-
-	// Handle Name/Pointer
+	// Handle name
 	if ((*ptr & 0xC0) == 0xC0) {
 		ptr += 2; 
 	} else {
@@ -185,6 +167,13 @@ void print_response(unsigned char *msg, size_t msg_len) {
     if (answer_count > 0) {
         printf("\nANSWER SECTION:\n");
         for (int i = 0; i < answer_count; i++) {
+            reader += print_rr(reader, domain);
+        }
+    }
+
+	if (additional_count > 0) {
+        printf("\nAdditional SECTION:\n");
+        for (int i = 0; i < additional_count; i++) {
             reader += print_rr(reader, domain);
         }
     }
