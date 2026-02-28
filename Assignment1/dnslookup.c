@@ -43,13 +43,9 @@ Usage:
 #include <errno.h>
 #include <string.h>
 
-#define MAX_STR_LEN 2000
-#define MAX_STR_CNT 200
 #define MAX_MSG_LEN 10000
 
 int get_type(const char *type_str) {
-    if (type_str == NULL) return 0;
-
     // We use strcasecmp to make it case-insensitive (e.g., "mx" or "MX")
     if (strcasecmp(type_str, "A") == 0)      return 1;
     if (strcasecmp(type_str, "NS") == 0)     return 2;
@@ -57,7 +53,7 @@ int get_type(const char *type_str) {
     if (strcasecmp(type_str, "MX") == 0)     return 15;
     if (strcasecmp(type_str, "TXT") == 0)    return 16;
 
-    return -1; // Return -1 if the type is unknown
+    return 1; // Return -1 if the type is unknown
 }
 
 char* get_type_name(int type) {
@@ -76,15 +72,15 @@ int create_msg(unsigned char *msg, char *domainname, char *type_str) {
     // 1. Header (12 bytes)
     memset(msg, 0, 12);
     uint16_t id = htons(0x1234);
-    uint16_t flags = htons(0x0100); // Recursion Desired
+    uint16_t flags = htons(0x0100); // Recursion true
     uint16_t qd_count = htons(1);
 
     memcpy(msg, &id, 2);
     memcpy(msg + 2, &flags, 2);
     memcpy(msg + 4, &qd_count, 2);
-    // Bytes 6-11 remain 0 (Correct for a query)
+    // Bytes 6-11 are 0
 
-    // 2. Question Name (Label format)
+    // 2. Question Name
     unsigned char *qname = msg + 12;
     int lock = 0, i;
     char temp[256]; 
@@ -101,11 +97,10 @@ int create_msg(unsigned char *msg, char *domainname, char *type_str) {
             lock++;
         }
     }
-    qname[qname_ptr++] = 0; // End of name
+    qname[qname_ptr++] = 0;
 
     // 3. Type and Class
     int type = get_type(type_str);
-    if (type == -1) type = 1; // Default to A
     
     uint16_t qtype = htons((uint16_t)type);
     uint16_t qclass = htons(1); // Internet class
@@ -114,6 +109,32 @@ int create_msg(unsigned char *msg, char *domainname, char *type_str) {
     memcpy(qname + qname_ptr + 2, &qclass, 2);
 
     return 12 + qname_ptr + 4;
+}
+
+int print_rr(unsigned char *ptr, char *domain) {
+	char ans_name[256];
+	unsigned char *original = ptr;
+
+
+	// Handle Name/Pointer
+	if ((*ptr & 0xC0) == 0xC0) {
+		ptr += 2; 
+	} else {
+		while (*ptr != 0) ptr += (*ptr + 1);
+		ptr++;
+	}
+
+	uint16_t type  = (ptr[0] << 8) | ptr[1];
+	uint16_t class = (ptr[2] << 8) | ptr[3];
+	uint32_t ttl   = (ptr[4] << 24) | (ptr[5] << 16) | (ptr[6] << 8) | ptr[7];
+	uint16_t rdlen = (ptr[8] << 8) | ptr[9];
+	ptr += 10;
+
+	// Use your domain variable from the query or parse ans_name
+	printf("%s.\t%u\tIN\t%s\t", domain, ttl, get_type_name(type));
+
+	printf("%u.%u.%u.%u\n", ptr[0], ptr[1], ptr[2], ptr[3]);
+	return (ptr+rdlen) - original;
 }
 
 void print_response(unsigned char *msg, size_t msg_len) {
@@ -126,7 +147,7 @@ void print_response(unsigned char *msg, size_t msg_len) {
     additional_count = msg[10] * 256 + msg[11];
     
     // AA is bit 2 of byte 2 (the 10th bit of the header)
-    AA = (msg[2] & 0x04) >> 2;
+    AA = (msg[2]/4)%2;
 
     printf("QUERY: %d, ANSWER: %d, AUTHORITY: %d, ADDITIONAL: %d\n\n", 
             query_count, answer_count, authority_count, additional_count);
@@ -164,29 +185,7 @@ void print_response(unsigned char *msg, size_t msg_len) {
     if (answer_count > 0) {
         printf("\nANSWER SECTION:\n");
         for (int i = 0; i < answer_count; i++) {
-            char ans_name[256];
-            unsigned char *curr = reader;
-
-            // Handle Name/Pointer
-            if ((*curr & 0xC0) == 0xC0) {
-                curr += 2; 
-            } else {
-                while (*curr != 0) curr += (*curr + 1);
-                curr++;
-            }
-
-            uint16_t type  = (curr[0] << 8) | curr[1];
-            uint16_t class = (curr[2] << 8) | curr[3];
-            uint32_t ttl   = (curr[4] << 24) | (curr[5] << 16) | (curr[6] << 8) | curr[7];
-            uint16_t rdlen = (curr[8] << 8) | curr[9];
-            curr += 10; 
-
-            // Use your domain variable from the query or parse ans_name
-            printf("%s.\t%u\tIN\t%s\t", domain, ttl, get_type_name(type));
-
-            printf("%u.%u.%u.%u\n", curr[0], curr[1], curr[2], curr[3]);
-
-            reader = curr + rdlen;
+            reader += print_rr(reader, domain);
         }
     }
 }
@@ -219,6 +218,7 @@ int main (int argc, char *argv[]) {
 
     // Parse command line arguments
     char server[15] = "8.8.8.8";
+    //char server[15] = "127.0.0.53";
     int retries = 3;
     int timeout = 1;
     // Read options
@@ -237,6 +237,7 @@ int main (int argc, char *argv[]) {
             case 'r':
                 retries = atoi(argv[aux+1]);
                 aux+=2;
+				break;
             case 't':
                 timeout = atoi(argv[aux+1]);
                 aux+=2;
@@ -259,16 +260,23 @@ int main (int argc, char *argv[]) {
     }
 
     long port = 53;
-
-    // We also set this to as network order quantity
     dns_server.sin_port = htons(port);
 
-    // 2. Create UDP socket
+    // 2. Create socket
 
     int sockfd;
 
     if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) == -1) {
-        perror("UDP socket couldn't be created correctly");
+        perror("Socket couldn't be created correctly");
+        return EXIT_FAILURE;
+    }
+
+	// Set the timeout on the socket once before starting
+    struct timeval tv;
+    tv.tv_sec = timeout;
+    tv.tv_usec = 0;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+        perror("Error setting timeout");
         return EXIT_FAILURE;
     }
 
@@ -280,21 +288,12 @@ int main (int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    // Set the timeout on the socket once before starting
-    struct timeval tv;
-    tv.tv_sec = timeout;
-    tv.tv_usec = 0;
-    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
-        perror("Error setting timeout");
-        return EXIT_FAILURE;
-    }
-
-    // 4 & 5. Send and Receive with Retries
-    unsigned char buf[1024];
+    // Send and Receive
+    unsigned char buf[512];
     struct sockaddr_in addr;
     socklen_t slen = sizeof(addr);
     int n = -1;
-    int current_retry = 0;
+    int current_retry = 0;	// Count how many times we tried to send/receive
 
     while (current_retry <= retries) {
         if (sendto(sockfd, msg, len, 0, (const struct sockaddr *)&dns_server, sizeof(dns_server)) < 0) {
@@ -305,23 +304,17 @@ int main (int argc, char *argv[]) {
         n = recvfrom(sockfd, buf, sizeof(buf), 0, (struct sockaddr *) &addr, &slen);
 
         if (n >= 0) {
-            // Success! We have a response
             print_response(buf, n);
             break;
         } else {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                // Timeout occurred
-                current_retry++;
-                if (current_retry <= retries) {
-                    printf("Timeout. Retrying (%d/%d)...\n", current_retry, retries);
-                } else {
-                    printf("Failed after %d retries.\n", retries);
-                }
-            } else {
-                // A different socket error occurred
-                perror("recvfrom failed");
-                return EXIT_FAILURE;
-            }
+			// Receive failed
+			current_retry++;
+			if (current_retry <= retries) {
+				printf("Timeout exceeded. Retrying (%d/%d)...\n", current_retry, retries);
+			} else {
+				printf("Failed after %d retries.\n", retries);
+				break;
+			}
         }
     }
 
