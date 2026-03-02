@@ -98,7 +98,7 @@ int print_rr(unsigned char *ptr, char *domain) {
 	char ans_name[256];
 	unsigned char *original = ptr;
 
-	// Handle name
+	// Skip
 	if ((*ptr & 0xC0) == 0xC0) {
 		ptr += 2; 
 	} else {
@@ -106,10 +106,10 @@ int print_rr(unsigned char *ptr, char *domain) {
 		ptr++;
 	}
 
-	uint16_t type  = (ptr[0] << 8) | ptr[1];
-	uint16_t class = (ptr[2] << 8) | ptr[3];
-	uint32_t ttl   = (ptr[4] << 24) | (ptr[5] << 16) | (ptr[6] << 8) | ptr[7];
-	uint16_t rdlen = (ptr[8] << 8) | ptr[9];
+	uint16_t type  = (ptr[0] << 8) + ptr[1];
+	uint16_t class = (ptr[2] << 8) + ptr[3];
+	uint32_t ttl   = (ptr[4] << 24) + (ptr[5] << 16) + (ptr[6] << 8) + ptr[7];
+	uint16_t rdlen = (ptr[8] << 8) + ptr[9];
 	ptr += 10;
 
 	printf("%s.\t%u\tIN\t%s\t", domain, ttl, get_type_name(type));
@@ -151,9 +151,8 @@ void print_response(unsigned char *msg, size_t msg_len) {
             domain[pos - 1] = '\0';
             curr++; // skip null terminator
 
-            // FIX: Type comes FIRST (curr[0], curr[1]), Class SECOND (curr[2], curr[3])
-            uint16_t type  = (curr[0] << 8) | curr[1];
-            uint16_t class = (curr[2] << 8) | curr[3];
+            uint16_t type  = (curr[0] << 8) + curr[1];
+            uint16_t class = (curr[2] << 8) + curr[3];
 
             printf("%s.\tIN\t%s\n", domain, get_type_name(type));
             
@@ -203,8 +202,8 @@ int main (int argc, char *argv[]) {
     }
 
     // Parse command line arguments
-    char server[15] = "8.8.8.8";
-    //char server[15] = "127.0.0.53";
+    //char server[15] = "8.8.8.8";
+    char server[15] = "127.0.0.53";
     int retries = 3;
     int timeout = 1;
     // Read options
@@ -296,7 +295,7 @@ int main (int argc, char *argv[]) {
 			// Receive failed
 			current_retry++;
 			if (current_retry <= retries) {
-				printf("Timeout exceeded. Retrying (%d/%d)...\n", current_retry, retries);
+				printf("Timeout exceeded. Retrying (%d/%d)\n", current_retry, retries);
 			} else {
 				printf("Failed after %d retries.\n", retries);
 				break;
