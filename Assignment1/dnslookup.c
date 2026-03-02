@@ -112,7 +112,6 @@ int print_rr(unsigned char *ptr, char *domain) {
 	uint16_t rdlen = (ptr[8] << 8) | ptr[9];
 	ptr += 10;
 
-	// Use your domain variable from the query or parse ans_name
 	printf("%s.\t%u\tIN\t%s\t", domain, ttl, get_type_name(type));
 
 	printf("%u.%u.%u.%u\n", ptr[0], ptr[1], ptr[2], ptr[3]);
@@ -156,14 +155,12 @@ void print_response(unsigned char *msg, size_t msg_len) {
             uint16_t type  = (curr[0] << 8) | curr[1];
             uint16_t class = (curr[2] << 8) | curr[3];
 
-            // Print in standard format: Name  Class  Type
             printf("%s.\tIN\t%s\n", domain, get_type_name(type));
             
             reader = curr + 4;
         }
     }
 
-    // --- ANSWER SECTION ---
     if (answer_count > 0) {
         printf("\nANSWER SECTION:\n");
         for (int i = 0; i < answer_count; i++) {
