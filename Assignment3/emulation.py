@@ -35,13 +35,17 @@ for r in routers:
         net =  [ addr[i] & mask[i] for i in range(4) ]
         routers[r][i]['net'] = net
 
-print(data)
+#print(data)
 
-# Compute adjacency
+# 1.  Compute adjacency
+# 1.1 Init adjacency arrays
 for r in routers:
     for i in routers[r]:
         routers[r][i]['adj'] = []
 
+# 1.2 Fill in adjacency ararys
+# The array for a given interface contains a dict with r: string id of the
+# router to which the interface connects and cost: int cost of the link.
 adj = {}
 for r1 in routers:
     for i1 in routers[r1]:
@@ -49,20 +53,22 @@ for r1 in routers:
             if r1 == r2:
                 continue
             for i2 in routers[r2]:
+                cost = int(routers)
                 if routers[r1][i1]["net"] == routers[r2][i2]["net"]:
                     routers[r1][i1]['adj'].append(r2)
 
-
+# 1. Print adjacency
 for r in routers:
     for i in routers[r]:
         print(f"{r}: {i}: ", routers[r][i]['adj'])
 
+# 2. Draw graph
 if args.draw:
     out = "graph Network {"
     for r in routers:
         out = out + f"\n\t{r} [shape=circle];"
 
-    for r in routers:
+    for r in routers:#
         for i in routers[r]:
             for a in routers[r][i]['adj']:
                 out = out + f"\n\t{r} -- {a} [label=1];"
