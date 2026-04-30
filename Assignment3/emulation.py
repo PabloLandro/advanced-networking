@@ -37,7 +37,7 @@ hosts = data['hosts']
 
 networks = {}
 
-# Preprocess data to compute network
+# Preprocess data to compute the router interfaces in each network
 for r_id,router in routers.items():
     for interface in router.values():
         addr= [ int(aux) for aux in interface['address'].split(".") ]
@@ -67,6 +67,7 @@ for h_id, host in hosts.items():
         net = [addr[i] & mask[i] for i in range(4)]
         interface['net_str'] = '.'.join(str(o) for o in net)
 
+# Set default costs if not determined
 for n in networks.values():
     if n["cost"] == -1:
         n["cost"] = 1
@@ -122,19 +123,19 @@ def dijkstra(src):
                 heapq.heappush(pq, (dist[neighbor], neighbor))
     return prev
 
-# next_hop[src][dst] = (first_hop_router_id, net_str shared between src and first_hop)
+# Next hop is a dict that maps src node to a dict that maps dst to the next node in the shortest path (src->dst)
 next_hop = {}
-for r_id in routers:
-    prev_map = dijkstra(r_id)
-    next_hop[r_id] = {}
+for src in routers:
+    prev_map = dijkstra(src)
+    next_hop[src] = {}
     for dst in routers:
-        if dst == r_id or prev_map[dst] is None:
+        if dst == src or prev_map[dst] is None:
             continue
         cur = dst
-        while prev_map[cur] is not None and prev_map[cur][0] != r_id:
+        while prev_map[cur] is not None and prev_map[cur][0] != src:
             cur = prev_map[cur][0]
         if prev_map[cur] is not None:
-            next_hop[r_id][dst] = (cur, prev_map[cur][1])
+            next_hop[src][dst] = (cur, prev_map[cur][1])
 
 
 class LinuxRouter(Node):
@@ -177,11 +178,10 @@ class NetworkTopo(Topo):
                 net_str = interface['net_str']
                 self.addLink(h_id, switches[net_str], intfName1=f'{h_id}-{i_id}', params1={'ip': f"{interface['address']}/{networks[net_str]['prefix']}"})
 
-# --- Mininet setup ---
 mn = Mininet(topo=NetworkTopo(), controller=None)
 mn.start()
 
-# Install routes on each router for every non-directly-connected network
+# add rules on each router for every non-directly-connected network
 for r_id in routers:
     r_node = mn.get(r_id)
     directly_connected = {iface['net_str'] for iface in routers[r_id].values()}
@@ -198,10 +198,12 @@ for r_id in routers:
                 _, gw_iface = find_iface(first_hop_id, shared_net)
                 gateway_ip = gw_iface['address']
                 break
+        # If it is not reachable we continue on to the next
         if gateway_ip is None:
             continue
         prefix = dst_net_info['prefix']
         if prefix is not None:
+            # Add the rule to the routing table
             r_node.cmd(f'ip route add {dst_net_str}/{prefix} via {gateway_ip}')
 
 CLI(mn)
