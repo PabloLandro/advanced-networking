@@ -12,6 +12,9 @@ options:
 
 from argparse import ArgumentParser
 import yaml
+
+def mask_to_prefix(mask_str):
+    return sum(bin(int(o)).count('1') for o in mask_str.split('.'))
 from mininet.net import Mininet
 from mininet.topo import Topo
 from mininet.cli import CLI
@@ -51,6 +54,7 @@ for r_id,router in routers.items():
         else:
             aux = {}
             aux["cost"] = interface["cost"] if "cost" in interface else -1
+            aux["prefix"] = mask_to_prefix(interface["mask"])
             aux["routers"] = []
             aux["routers"].append(r_id)
             networks[net_str] = aux
@@ -83,9 +87,6 @@ if args.draw:
     exit(0)
 
 import heapq
-
-def mask_to_prefix(mask_str):
-    return sum(bin(int(o)).count('1') for o in mask_str.split('.'))
 
 # Find the interface of a router for a given network
 def find_iface(r_id, target_net_str):
@@ -169,15 +170,12 @@ class NetworkTopo(Topo):
             switches[net_str] = sw
             for r_id in net['routers']:
                 i_id, interface = find_iface(r_id, net_str)
-                prefix = mask_to_prefix(interface['mask'])
-                self.addLink(r_id, sw, intfName1=f'{r_id}-{i_id}', params1={'ip': f"{interface['address']}/{prefix}"})
+                self.addLink(r_id, sw, intfName1=f'{r_id}-{i_id}', params1={'ip': f"{interface['address']}/{net['prefix']}"})
 
-        # Add a switch for each router and its hosts
         for h_id, host in hosts.items():
             for i_id, interface in host.items():
-                sw = switches[interface['net_str']]
-                prefix = mask_to_prefix(interface['mask'])
-                self.addLink(h_id, sw, intfName1=f'{h_id}-{i_id}', params1={'ip': f"{interface['address']}/{prefix}"})
+                net_str = interface['net_str']
+                self.addLink(h_id, switches[net_str], intfName1=f'{h_id}-{i_id}', params1={'ip': f"{interface['address']}/{networks[net_str]['prefix']}"})
 
 # --- Mininet setup ---
 mn = Mininet(topo=NetworkTopo(), controller=None)
@@ -202,18 +200,7 @@ for r_id in routers:
                 break
         if gateway_ip is None:
             continue
-        prefix = None
-        for rr_id in dst_net_info['routers']:
-            _, iface = find_iface(rr_id, dst_net_str)
-            if iface:
-                prefix = mask_to_prefix(iface['mask'])
-                break
-        if prefix is None:
-            for host in hosts.values():
-                for iface in host.values():
-                    if iface['net_str'] == dst_net_str:
-                        prefix = mask_to_prefix(iface['mask'])
-                        break
+        prefix = dst_net_info['prefix']
         if prefix is not None:
             r_node.cmd(f'ip route add {dst_net_str}/{prefix} via {gateway_ip}')
 
