@@ -1,3 +1,5 @@
+# As sources I mainly used the mininet guide on icorsi as well as the mininet python API documentation
+
 
 usage = """emulation.py [-h] [-d] definition
 A tool to define the emulation of a network.

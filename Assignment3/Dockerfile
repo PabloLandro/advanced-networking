@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     net-tools \
     iputils-ping \
     bridge-utils \
+    traceroute \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /assignment
