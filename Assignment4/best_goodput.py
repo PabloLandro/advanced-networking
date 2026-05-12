@@ -46,7 +46,7 @@ parser.add_argument("definition", metavar="definition", help="the definition fil
 
 args = parser.parse_args()
 
-# ── Parsing ──────────────────────────────────────────────────────────────────
+# Parsing
 
 def mask_to_prefix(mask_str):
     return sum(bin(int(o)).count('1') for o in mask_str.split('.'))
@@ -98,7 +98,25 @@ for net in networks.values():
     if net['cost'] == -1:
         net['cost'] = 1
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# Build list of undirected router-to-router edges: (r1, r2, net_str, capacity)
+edges = []
+for net_str, net in networks.items():
+    rs = net['routers']
+    if len(rs) == 2:
+        edges.append((rs[0], rs[1], net_str, net['cost']))
+
+# Create adj
+adj = {}
+for e in edges:
+    if e[0] not in adj:
+        adj[e[0]] = []
+    if e[1] not in adj:
+        adj[e[1]] = []
+    adj[e[0]].append((e[1], e[2]))
+    adj[e[1]].append((e[0], e[2]))
+
+
+# Helpers
 
 def find_iface(r_id, target_net_str):
     for i_id, iface in routers[r_id].items():
@@ -119,14 +137,12 @@ def host_router(h_id):
     iface = next(iter(hosts[h_id].values()))
     return networks[iface['net_str']]['routers'][0]
 
-# Build list of undirected router-to-router edges: (r1, r2, net_str, capacity)
-edges = []
-for net_str, net in networks.items():
-    rs = net['routers']
-    if len(rs) == 2:
-        edges.append((rs[0], rs[1], net_str, net['cost']))
+def rx(demand_id, u_id, v_id):
+    return "r" + demand_id + "_" + u_id + "_" + v_id
+def x(demand_id, u_id, v_id):
+    return "x" + demand_id + "_" + u_id + "_" + v_id
 
-# ── LP formulation ────────────────────────────────────────────────────────────
+# LP formulation
 
 def build_lp():
     """Return the LP problem as a CPLEX LP format string."""
@@ -136,73 +152,91 @@ def build_lp():
     def fvar(i, u, v):
         return f"f_{i}_{u}_{v}"
 
-    obj_terms = ["alpha"]
+    # Our objective function will be to maxmimize m, m is the minimal effectiveness
+    # ratio.
 
-    lines_obj  = [f" obj: alpha"]
-    lines_subj = []
+    lp = "Maximize\n\tobj: m\nSubject to\n"
 
-    # For each demand: total flow leaving the source router >= alpha * rate
-    for i, d in enumerate(demands):
-        src_r = host_router(d['src'])
-        dst_r = host_router(d['dst'])
-        rate  = d['rate']
+    # To achieve m being the minimum of each effectiveness ratio we will put one
+    # constraint for each flow and have m <= attained flow / flow demand
 
-        # Collect all directed edges incident to each router for this demand
-        out = {r: [] for r in routers}
-        inc = {r: [] for r in routers}
-        for (u, v, net_str, cap) in edges:
-            out[u].append(fvar(i, u, v))
-            inc[v].append(fvar(i, u, v))
-            out[v].append(fvar(i, v, u))
-            inc[u].append(fvar(i, v, u))
+    # The flow demand is a constant that we get from the problem statement, while the
+    # attained flow is a variable of the lp problem
+    for demand, idx in demands:
+        lp = lp + "\tlambda" + idx / demand["rate"] + "\n"
 
-        # Effectiveness ratio: outflow from source >= alpha * rate
-        out_src = ' + '.join(out[src_r])
-        lines_subj.append(f" eff_{i}: {out_src} - {rate} alpha >= 0")
+    # For the flow of each commodity in each edge we will use two variables:
+    #   - ri_u_v (real-valued): The flow of commodity i from nodes u to v.
+    #   - i_u_v (binary): Wether the flow of commodity i is using the edge from u to v.
 
-        # Flow conservation at intermediate routers
-        for r in routers:
-            if r == src_r or r == dst_r:
-                continue
-            if not out[r]:
-                continue
-            in_vars  = ' + '.join(inc[r])  if inc[r]  else '0'
-            out_vars = ' + '.join(out[r]) if out[r] else '0'
-            lines_subj.append(f" cons_{i}_{r}: {in_vars} - {out_vars} = 0")
+    # We then add the flow balance constraints for real valued rate variables, that
+    # is, the inflow of a specific commodity has to be equal to the outflow.
+    # The only nodes to take into account are the routers
+    for d in demands.values():
+        did = d["id"]
+        for u in adj:
+            lp1 = "\t"
+            lp2 = "\t"
+            for v, idx in adj[u]:
+                lp1 = lp1 + rx(did, u, v) + " - " + rx(did, v, u)
+                lp2 = lp2 + x(did, u, v) + " - " + x(did, v, u)
+                if idx != len(adj[u])-1:
+                    lp1 = lp1 + " + "
+                    lp2 = lp2 + " + "
+            if u == d["src"]:
+                lp1 = lp1 + " + lambda" + did
+                lp2 = lp2 + " = -1"
+            elif u == d["dst"]:
+                lp1 = lp1 + "- lambda" + did
+                lp2 = lp2 + " = 1"
+            else:
+                lp2 = lp2 + " = 0"
+            lp1 = lp1 + " = 0\n"
+            lp2 = lp2 + "\n"
+            lp = lp + lp1 + lp2
 
-        # No flow into source, no flow out of destination (cleaner LP)
-        # (capacity constraints handle physical limits anyway)
+    # Mutual exclusion of incoming and outgoing into the same node
+    for d in demands.values():
+        did = d["id"]
+        for u in adj:
+            lp1 = "\t"
+            lp2 = "\t"
+            for v, idx in adj[u]:
+                lp1 = lp1 + x(did, u, v)
+                lp2 = lp2 + x(did, v, u)
+                if idx != len(adj[u]) - 1:
+                    lp1 = lp1 + " + "
+                    lp2 = lp2 + " + "
+            lp1 = lp1 + " leq 1\n"
+            lp2 = lp2 + " leq 1\n"
+            lp = lp + lp1 + lp2
+    
+    # Link capacities constraints
+    for e in edges:
+        u = e[0]
+        v = e[1]
+        c = e[2]
+        lp = lp + "\t"
+        for d, idx in demands:
+            did = d["id"]
+            lp = lp + rx(did,u,v) + " + " + rx(did,v,u)
+            if idx != len(demands) - 1:
+                lp = lp + " + "
+        lp = lp + " leq " + c + "\n"
 
-    # Capacity constraints: sum of all flows on each undirected link <= capacity
-    for (u, v, net_str, cap) in edges:
-        terms = []
-        for i in range(n):
-            terms.append(fvar(i, u, v))
-            terms.append(fvar(i, v, u))
-        lhs = ' + '.join(terms)
-        lines_subj.append(f" cap_{u}_{v}: {lhs} <= {cap}")
+    # Control of real value flow variables by corresponding indicators
+    for d in demands:
+        did = d["id"]
+        for u in adj:
+            for v in adj[u]:
+                lp = lp + "\t" + rx(did,u,v) + " " + x(did,u,v) + " leq 0\n"
 
-    # Non-negativity (alpha and all f vars)
-    all_fvars = []
-    for i in range(n):
-        for (u, v, net_str, cap) in edges:
-            all_fvars.append(fvar(i, u, v))
-            all_fvars.append(fvar(i, v, u))
 
-    bounds_lines = [" alpha >= 0"]
-    for fv in all_fvars:
-        bounds_lines.append(f" {fv} >= 0")
+    lp = lp + "END\n"
 
-    lp  = "Maximize\n"
-    lp += lines_obj[0] + "\n"
-    lp += "Subject to\n"
-    lp += "\n".join(lines_subj) + "\n"
-    lp += "Bounds\n"
-    lp += "\n".join(bounds_lines) + "\n"
-    lp += "End\n"
     return lp
 
-# ── GLPK solver ───────────────────────────────────────────────────────────────
+# GLPK solver
 
 def solve():
     """Run glpsol, return (alpha, flows) where flows[i][(u,v)] = flow value."""
@@ -250,13 +284,13 @@ def solve():
         if os.path.exists(sol_path):
             os.unlink(sol_path)
 
-# ── --lp mode ─────────────────────────────────────────────────────────────────
+# --lp mode
 
 if args.lp:
     print(build_lp(), end='')
     exit(0)
 
-# ── --print mode ──────────────────────────────────────────────────────────────
+# --print mode
 
 if getattr(args, 'print'):
     alpha, flows = solve()
@@ -265,7 +299,7 @@ if getattr(args, 'print'):
         print(f"The best goodput for flow demand #{i+1} is {goodput} Mbps")
     exit(0)
 
-# ── Mininet emulation ─────────────────────────────────────────────────────────
+# Mininet emulation
 
 alpha, flows = solve()
 
