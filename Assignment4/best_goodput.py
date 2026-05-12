@@ -108,13 +108,21 @@ for net_str, net in networks.items():
 # Create adj
 adj = {}
 for e in edges:
-    if e[0] not in adj:
-        adj[e[0]] = []
-    if e[1] not in adj:
-        adj[e[1]] = []
-    adj[e[0]].append((e[1], e[2]))
-    adj[e[1]].append((e[0], e[2]))
+    u = e[0]
+    v = e[1]
+    c = e[2]
+    if u not in adj:
+        adj[u] = []
+    if v not in adj:
+        adj[v] = []
+    adj[u].append((v, c))
+    adj[v].append((u, c))
 
+# Add ids to demands
+aux_id = 1
+for d in demands:
+    d["id"] = str(aux_id)
+    aux_id = aux_id + 1
 
 # Helpers
 
@@ -137,10 +145,7 @@ def host_router(h_id):
     iface = next(iter(hosts[h_id].values()))
     return networks[iface['net_str']]['routers'][0]
 
-def rx(demand_id, u_id, v_id):
-    return "r" + demand_id + "_" + u_id + "_" + v_id
-def x(demand_id, u_id, v_id):
-    return "x" + demand_id + "_" + u_id + "_" + v_id
+
 
 # LP formulation
 
@@ -148,9 +153,10 @@ def build_lp():
     """Return the LP problem as a CPLEX LP format string."""
     n = len(demands)
 
-    # Variable names: f_{i}_{u}_{v} for demand i on directed edge u->v
-    def fvar(i, u, v):
-        return f"f_{i}_{u}_{v}"
+    def rx(demand_id, u_id, v_id):
+        return "rx" + demand_id + "_" + u_id + "_" + v_id
+    def x(demand_id, u_id, v_id):
+        return "x" + demand_id + "_" + u_id + "_" + v_id
 
     # Our objective function will be to maxmimize m, m is the minimal effectiveness
     # ratio.
@@ -162,8 +168,8 @@ def build_lp():
 
     # The flow demand is a constant that we get from the problem statement, while the
     # attained flow is a variable of the lp problem
-    for demand, idx in demands:
-        lp = lp + "\tlambda" + idx / demand["rate"] + "\n"
+    for idx, demand in enumerate(demands):
+        lp = lp + f"\tlambda <= f_{idx} / {demand['rate']}\n"
 
     # For the flow of each commodity in each edge we will use two variables:
     #   - ri_u_v (real-valued): The flow of commodity i from nodes u to v.
@@ -172,7 +178,7 @@ def build_lp():
     # We then add the flow balance constraints for real valued rate variables, that
     # is, the inflow of a specific commodity has to be equal to the outflow.
     # The only nodes to take into account are the routers
-    for d in demands.values():
+    for d in demands:
         did = d["id"]
         for u in adj:
             lp1 = "\t"
@@ -196,7 +202,8 @@ def build_lp():
             lp = lp + lp1 + lp2
 
     # Mutual exclusion of incoming and outgoing into the same node
-    for d in demands.values():
+    lp = lp + "\nMutual exclusion of incoming and outgoing into the same node\n"
+    for d in demands:
         did = d["id"]
         for u in adj:
             lp1 = "\t"
@@ -207,29 +214,31 @@ def build_lp():
                 if idx != len(adj[u]) - 1:
                     lp1 = lp1 + " + "
                     lp2 = lp2 + " + "
-            lp1 = lp1 + " leq 1\n"
-            lp2 = lp2 + " leq 1\n"
+            lp1 = lp1 + " <= 1\n"
+            lp2 = lp2 + " <= 1\n"
             lp = lp + lp1 + lp2
     
     # Link capacities constraints
+    lp = lp + "\nLink capacities constraints\n"
     for e in edges:
         u = e[0]
         v = e[1]
-        c = e[2]
+        c = str(e[3])
         lp = lp + "\t"
-        for d, idx in demands:
+        for idx, d in enumerate(demands):
             did = d["id"]
             lp = lp + rx(did,u,v) + " + " + rx(did,v,u)
             if idx != len(demands) - 1:
                 lp = lp + " + "
-        lp = lp + " leq " + c + "\n"
+        lp = lp + " <= " + c + "\n"
 
     # Control of real value flow variables by corresponding indicators
+    lp = lp + "\nControl of real value flow variables by corresponding indicators\n"
     for d in demands:
         did = d["id"]
         for u in adj:
             for v in adj[u]:
-                lp = lp + "\t" + rx(did,u,v) + " " + x(did,u,v) + " leq 0\n"
+                lp = lp + "\t" + rx(did,u,v[0]) + " " + x(did,u,v[0]) + " <= 0\n"
 
 
     lp = lp + "END\n"
