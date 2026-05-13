@@ -18,16 +18,12 @@ options:
 from argparse import ArgumentParser
 import yaml
 import subprocess
-import tempfile
-import os
 
 from mininet.net import Mininet
 from mininet.topo import Topo
 from mininet.cli import CLI
 from mininet.node import Node, OVSBridge
 from mininet.link import TCLink
-
-from ortools.linear_solver import pywraplp
 
 parser = ArgumentParser(
     description="A tool to define the emulation of a network configured to achieve the best overall goodput under a given set of flow demands."
@@ -82,7 +78,7 @@ for r_id, router in routers.items():
                 networks[net_str]["cost"] = interface["cost"]
         else:
             networks[net_str] = {
-                "cost":    interface.get("cost", 1),
+                "cost":    interface["cost"] if "cost" in interface else -1,
                 "prefix":  mask_to_prefix(interface["mask"]),
                 "routers": [r_id],
                 "hosts":   [],
@@ -248,6 +244,14 @@ def build_lp():
                     lp2 = lp2 + " + "
             lp = lp + lp2 + " <= 1\n"
 
+    # At most one direction per undirected edge per demand
+    lp = lp + "\n\\ Mutual exclusion per edge\n"
+    for d in demands:
+        did = d["id"]
+        for e in edges:
+            u, v = e[0], e[1]
+            lp = lp + "\t" + x(did, u, v) + " + " + x(did, v, u) + " <= 1\n"
+
     # Link capacities constraints
     lp = lp + "\n\\ Link capacities constraints\n"
     for e in edges:
@@ -288,40 +292,16 @@ def build_lp():
 
     return lp
 
-def orsolve():
-    solver = pywraplp.Solver.CreateSolver("GLOP")
-    if not solver:
-        return
-    vars = {}
-    vars["m"] = solver.NumVar(0, solver.infinity(), "m")
-    solver.Maximize(vars["m"])
-
-    # Create variables for the flow of each commodity
-    for d in demands:
-        id = f"lambda{d["id"]}"
-        vars[id] = solver.NumVar(0, demands["rate"], id)
-
-    # Add rate and indicator variables for each edge for each commodity
-    for d in demands:
-        for u_id in adj:
-            for v_id,c in adj[u_id]:
-                rx_id = rx(d["id"], u_id, v_id)
-                vars[rx_id] = solver.NumVar(-c, c, rx_id)
-                x_id = x(d["id"], u_id, v_id)
-                vars[x_id] = solver.Boolvar(x_id)
-
-
-# GLPK solver
 
 def solve():
-    """Run glpsol, return (alpha, flows) where flows[i][(u,v)] = flow value."""
-    lp_text = build_lp()
+    # We pass the output of build_lp to glpsol
+    lp_program = build_lp()
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".lp", delete=False) as lp_f:
-        lp_f.write(lp_text)
-        lp_path = lp_f.name
+    lp_path  = "problem.lp"
+    sol_path = "problem.txt"
 
-    sol_path = lp_path.replace(".lp", ".txt")
+    with open(lp_path, "w") as lp_f:
+        lp_f.write(lp_program)
 
     try:
         subprocess.run(
@@ -340,27 +320,27 @@ def solve():
                     continue
                 name = parts[1]
                 try:
-                    val = float(parts[2])  # was parts[3]: -o (MIP) has no status col; --sol (LP) does
+                    val = float(parts[2])
                 except (ValueError, IndexError):
                     continue
 
-                if name == "m":  # was "alpha" — objective variable is m
+                if name == "m":
                     alpha = val
+                # We take the target flows to output them (in case of -p)
                 elif name.startswith("lambda"):
-                    i = int(name[6:]) - 1  # lambda{id}, 1-indexed
+                    i = int(name[6:]) - 1
                     lambdas[i] = val
-                elif name.startswith("rx"):  # was "f_" — flow vars are rx{i}_{u}_{v}
-                    tokens = name[2:].split("_")  # strip "rx", split: ["id","u","v"]
-                    i = int(tokens[0]) - 1        # demand id is 1-indexed
+                # Take the rate of each demand in each edge to set up the mpls
+                elif name.startswith("rx"):
+                    tokens = name[2:].split("_")
+                    i = int(tokens[0]) - 1
                     u = tokens[1]
                     v = tokens[2]
                     flows[i][(u, v)] = val
 
-        return alpha, flows, lambdas
+        return flows, lambdas
     finally:
-        os.unlink(lp_path)
-        if os.path.exists(sol_path):
-            os.unlink(sol_path)
+        pass
 
 # --lp mode
 
@@ -371,14 +351,14 @@ if args.lp:
 # --print mode
 
 if getattr(args, "print"):
-    alpha, flows, lambdas = solve()
+    flows, lambdas = solve()
     for i, d in enumerate(demands):
         print(f"The best goodput for flow demand #{i+1} is {round(lambdas[i], 4)} Mbps")
     exit(0)
 
 # Mininet emulation
 
-alpha, flows, lambdas = solve()
+flows, lambdas = solve()
 
 class LinuxRouter(Node):
     def config(self, **params):
@@ -396,10 +376,14 @@ class NetworkTopo(Topo):
             self.addNode(r_id, cls=LinuxRouter, ip=None)
 
         for h_id, host in hosts.items():
+            # Grab the host interface (we use iter and next to grab the only element of the dict easily)
             iface = next(iter(host.values()))
-            r_id = networks[iface["net_str"]]["routers"][0]
-            _, r_iface = find_iface(r_id, iface["net_str"])
-            self.addHost(h_id, ip=None, defaultRoute=f"via {r_iface["address"]}")
+            # There should only be one router on this network
+            r_id = networks[iface['net_str']]['routers'][0]
+            # Get routers interface connecting to the host
+            _, r_iface = find_iface(r_id, iface['net_str'])
+            # Add host to the topology
+            self.addHost(h_id, ip=None, defaultRoute=f'via {r_iface["address"]}')
 
         switches = {}
         switch_idx = 1
@@ -408,25 +392,15 @@ class NetworkTopo(Topo):
             sw = self.addSwitch(f"s{switch_idx}", cls=OVSBridge)
             switches[net_str] = sw
             switch_idx += 1
-
             for r_id in net["routers"]:
                 i_id, iface = find_iface(r_id, net_str)
-                self.addLink(
-                    r_id, sw,
-                    cls=TCLink,
-                    bw=net["cost"],
-                    intfName1=f"{r_id}-{i_id}",
-                    params1={"ip": f"{iface["address"]}/{net["prefix"]}"}
-                )
+                self.addLink(r_id, sw, intfName1=f'{r_id}-{i_id}', params1={'ip': f"{interface['address']}/{net['prefix']}"})
 
         for h_id, host in hosts.items():
             for i_id, iface in host.items():
                 net_str = iface["net_str"]
-                self.addLink(
-                    h_id, switches[net_str],
-                    intfName1=f"{h_id}-{i_id}",
-                    params1={"ip": f"{iface["address"]}/{networks[net_str]["prefix"]}"}
-                )
+                self.addLink(h_id, switches[net_str], intfName1=f'{h_id}-{i_id}', params1={'ip': f"{interface['address']}/{networks[net_str]['prefix']}"})
+
 
 mn = Mininet(topo=NetworkTopo(), controller=None)
 mn.start()
@@ -438,16 +412,16 @@ for r_id in routers:
         r_node.cmd(f"sysctl -w net.mpls.conf.{r_id}-{i_id}.input=1")
 
 # Set up MPLS forwarding for each demand
-# Label i+1 is reserved for demand i
+# We have one label for each demand
 for i, d in enumerate(demands):
-    label     = i + 1
-    src_r     = host_router(d["src"])
-    dst_r     = host_router(d["dst"])
-    flow      = flows[i]
-    goodput   = alpha * d["rate"]
+    label = i + 1
+    src_r = host_router(d["src"])
+    dst_r = host_router(d["dst"])
+    flow = flows[i]
+    goodput = lambdas[i]
 
     for (u, v), fval in flow.items():
-        if fval < 1e-6:
+        if fval == 0:
             continue
         r_node = mn.get(u)
 
@@ -466,10 +440,9 @@ for i, d in enumerate(demands):
             # Ingress: push label and forward
             dst_host_iface = next(iter(hosts[d["dst"]].values()))
             dst_ip = dst_host_iface["address"]
+            # When sending packets from demand source towards demand destination
+            # we add the label of this demand
             r_node.cmd(f"ip route add {dst_ip}/32 encap mpls {label} via {next_ip}")
-        elif v == dst_r:
-            # Penultimate hop: forward with label (dst router will pop)
-            r_node.cmd(f"ip -f mpls route add {label} via inet {next_ip}")
         else:
             # Transit: swap/forward
             r_node.cmd(f"ip -f mpls route add {label} via inet {next_ip}")
