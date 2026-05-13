@@ -364,7 +364,7 @@ class LinuxRouter(Node):
     def config(self, **params):
         super().config(**params)
         self.cmd("sysctl net.ipv4.ip_forward=1")
-        self.cmd("sysctl -w net.mpls.platform_labels=1048575")
+        self.cmd("sysctl -w net.mpls.platform_label=65535")
 
     def terminate(self):
         self.cmd("sysctl net.ipv4.ip_forward=0")
@@ -376,7 +376,8 @@ class NetworkTopo(Topo):
             self.addNode(r_id, cls=LinuxRouter, ip=None)
 
         for h_id, host in hosts.items():
-            # Grab the host interface (we use iter and next to grab the only element of the dict easily)
+            # Grab the host interface (we use iter and next to grab the only
+            # element of the dict easily)
             iface = next(iter(host.values()))
             # There should only be one router on this network
             r_id = networks[iface['net_str']]['routers'][0]
