@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# Sources: Assignment 3 code and lp-notes from icorsi
+# Sources: Assignment 3 code and lp-notes/mpls from icorsi
+# I didn't manage to make the iperf3 work. It shows up as Connection Failed, operation now in progress
 
 usage = """./best_goodput.py [-h] [-p] [-l] [-d] definition
 
@@ -360,47 +361,6 @@ if getattr(args, "print"):
 
 flows, lambdas = solve()
 
-import heapq
-
-graph = {r_id: [] for r_id in routers}
-for net_str, net in networks.items():
-    rs = net['routers']
-    cost = net['cost']
-    for i in range(len(rs)):
-        for j in range(i + 1, len(rs)):
-            graph[rs[i]].append((rs[j], cost, net_str))
-            graph[rs[j]].append((rs[i], cost, net_str))
-
-def dijkstra(src):
-    dist = {r: float('inf') for r in routers}
-    prev = {r: None for r in routers}
-    dist[src] = 0
-    pq = [(0, src)]
-    while pq:
-        d, u = heapq.heappop(pq)
-        if d > dist[u]:
-            continue
-        for neighbor, w, link_net in graph[u]:
-            if dist[u] + w < dist[neighbor]:
-                dist[neighbor] = dist[u] + w
-                prev[neighbor] = (u, link_net)
-                heapq.heappush(pq, (dist[neighbor], neighbor))
-    return prev
-
-next_hop = {}
-for src in routers:
-    prev_map = dijkstra(src)
-    next_hop[src] = {}
-    for dst in routers:
-        if dst == src or prev_map[dst] is None:
-            continue
-        cur = dst
-        while prev_map[cur] is not None and prev_map[cur][0] != src:
-            cur = prev_map[cur][0]
-        if prev_map[cur] is not None:
-            next_hop[src][dst] = (cur, prev_map[cur][1])
-
-
 class LinuxRouter(Node):
     def config(self, **params):
         super(LinuxRouter, self).config(**params)
@@ -446,33 +406,6 @@ class NetworkTopo(Topo):
 mn = Mininet(topo=NetworkTopo(), controller=None)
 mn.start()
 
-# Add default routes for hosts
-for h_id, host in hosts.items():
-    iface = next(iter(host.values()))
-    r_id = networks[iface['net_str']]['routers'][0]
-    _, r_iface = find_iface(r_id, iface['net_str'])
-    mn.get(h_id).cmd(f'ip route add default via {r_iface["address"]}')
-
-# Add rules on each router for every non-directly-connected network
-for r_id in routers:
-    r_node = mn.get(r_id)
-    directly_connected = {iface['net_str'] for iface in routers[r_id].values()}
-    for dst_net_str, dst_net_info in networks.items():
-        if dst_net_str in directly_connected:
-            continue
-        gateway_ip = None
-        for dest_r in dst_net_info['routers']:
-            if dest_r in next_hop.get(r_id, {}):
-                first_hop_id, shared_net = next_hop[r_id][dest_r]
-                _, gw_iface = find_iface(first_hop_id, shared_net)
-                gateway_ip = gw_iface['address']
-                break
-        if gateway_ip is None:
-            continue
-        prefix = dst_net_info['prefix']
-        if prefix is not None:
-            r_node.cmd(f'ip route add {dst_net_str}/{prefix} via {gateway_ip}')
-
 # Enable MPLS on every router interface
 for r_id in routers:
     r_node = mn.get(r_id)
@@ -504,12 +437,16 @@ for i, d in enumerate(demands):
         next_ip = v_iface["address"]
 
         if u == src_r:
+            # push label and forward
             dst_host_iface = next(iter(hosts[d["dst"]].values()))
             dst_ip = dst_host_iface["address"]
+            # When sending packets from demand source towards demand destination
+            # we add the label of this demand
             r_node.cmd(f"ip route add {dst_ip}/32 encap mpls {label} via inet {next_ip}")
         else:
+            # swap/forward
             r_node.cmd(f"ip -f mpls route add {label} as {label} via inet {next_ip}")
-
+    # pop label, deliver locally
     dst_host_iface = next(iter(hosts[d["dst"]].values()))
     dst_ip = dst_host_iface["address"]
     dst_node = mn.get(dst_r)
