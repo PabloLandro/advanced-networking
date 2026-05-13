@@ -446,6 +446,13 @@ class NetworkTopo(Topo):
 mn = Mininet(topo=NetworkTopo(), controller=None)
 mn.start()
 
+# Add default routes for hosts
+for h_id, host in hosts.items():
+    iface = next(iter(host.values()))
+    r_id = networks[iface['net_str']]['routers'][0]
+    _, r_iface = find_iface(r_id, iface['net_str'])
+    mn.get(h_id).cmd(f'ip route add default via {r_iface["address"]}')
+
 # Add rules on each router for every non-directly-connected network
 for r_id in routers:
     r_node = mn.get(r_id)
