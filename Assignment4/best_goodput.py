@@ -362,13 +362,13 @@ flows, lambdas = solve()
 
 class LinuxRouter(Node):
     def config(self, **params):
-        super().config(**params)
+        super(LinuxRouter, self).config(**params)
         self.cmd("sysctl net.ipv4.ip_forward=1")
-        self.cmd("sysctl -w net.mpls.platform_label=65535")
+        self.cmd("sysctl -w net.mpls.platform_labels=65535")
 
     def terminate(self):
         self.cmd("sysctl net.ipv4.ip_forward=0")
-        super().terminate()
+        super(LinuxRouter, self).terminate()
 
 class NetworkTopo(Topo):
     def build(self, **opts):
@@ -387,19 +387,18 @@ class NetworkTopo(Topo):
             self.addHost(h_id, ip=None, defaultRoute=f'via {r_iface["address"]}')
 
         switches = {}
-        switch_idx = 1
 
+        # We add a switch for each network
         for net_str, net in networks.items():
-            sw = self.addSwitch(f"s{switch_idx}", cls=OVSBridge)
+            sw = self.addSwitch('s' + net_str.replace('.', ''), cls=OVSBridge)
             switches[net_str] = sw
-            switch_idx += 1
             for r_id in net["routers"]:
-                i_id, iface = find_iface(r_id, net_str)
+                i_id, interface = find_iface(r_id, net_str)
                 self.addLink(r_id, sw, intfName1=f'{r_id}-{i_id}', params1={'ip': f"{interface['address']}/{net['prefix']}"})
 
         for h_id, host in hosts.items():
-            for i_id, iface in host.items():
-                net_str = iface["net_str"]
+            for i_id, interface in host.items():
+                net_str = interface["net_str"]
                 self.addLink(h_id, switches[net_str], intfName1=f'{h_id}-{i_id}', params1={'ip': f"{interface['address']}/{networks[net_str]['prefix']}"})
 
 
