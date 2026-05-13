@@ -177,8 +177,10 @@ def build_lp():
 
     # The flow demand is a constant that we get from the problem statement, while the
     # attained flow is a variable of the lp problem
+    # lambda_i = -actual_flow (negative at src by sign convention), so
+    # lambda_i = actual flow (positive); m <= lambda_i/rate rewrites as: rate*m - lambda_i <= 0
     for idx, demand in enumerate(demands):
-        lp = lp + f"\tlambda <= f_{idx} / {demand["rate"]}\n"
+        lp = lp + f"\t{demand['rate']} m - lambda{demand['id']} <= 0\n"
 
     # For the flow of each commodity in each edge we will use two variables:
     #   - ri_u_v (real-valued): The flow of commodity i from nodes u to v.
@@ -187,46 +189,67 @@ def build_lp():
     # We then add the flow balance constraints for real valued rate variables, that
     # is, the inflow of a specific commodity has to be equal to the outflow.
     # The only nodes to take into account are the routers
+    # Flow balance for real-valued rate variables
     for d in demands:
         did = d["id"]
         for u in adj:
             lp1 = "\t"
-            lp2 = "\t"
-            for v in [ aux[0] for aux in adj[u]]:
-                #print("src: ", d["src"])
-                #print("u: ", u)
+            for i, v in enumerate([ aux[0] for aux in adj[u]]):
+                if i > 0:  # separate terms with +
+                    lp1 = lp1 + " + "
                 lp1 = lp1 + rx(did, u, v) + " - " + rx(did, v, u)
+            if u == d["src_router"]:
+                lp1 = lp1 + " - lambda" + did + " = 0\n"  # net_outflow = lambda (positive)
+            elif u == d["dst_router"]:
+                lp1 = lp1 + " + lambda" + did + " = 0\n"  # net_outflow = -lambda (negative at dst)
+            else:
+                lp1 = lp1 + " = 0\n"
+            lp = lp + lp1
+
+    # Flow balance for binary indicator variables
+    for d in demands:
+        did = d["id"]
+        for u in adj:
+            lp2 = "\t"
+            for i, v in enumerate([ aux[0] for aux in adj[u]]):
+                if i > 0:
+                    lp2 = lp2 + " + "
                 lp2 = lp2 + x(did, u, v) + " - " + x(did, v, u)
             if u == d["src_router"]:
-                lp1 = lp1 + " + lambda" + did + " = 0\n"
-                lp2 = lp2 + " = -1\n"
-            elif u == d["dst_router"]:
-                lp1 = lp1 + "- lambda" + did + " = 0\n"
                 lp2 = lp2 + " = 1\n"
+            elif u == d["dst_router"]:
+                lp2 = lp2 + " = -1\n"
             else:
                 lp2 = lp2 + " = 0\n"
-                lp1 = lp1 + " = 0\n"
-            lp = lp + lp1 + lp2
+            lp = lp + lp2
 
     # Mutual exclusion of incoming and outgoing into the same node
-    lp = lp + "\nMutual exclusion of incoming and outgoing into the same node\n"
+    # At most one outgoing edge per node per demand
+    lp = lp + "\n\\ Mutual exclusion outgoing\n"
     for d in demands:
         did = d["id"]
         for u in adj:
             lp1 = "\t"
-            lp2 = "\t"
-            for v, idx in adj[u]:
+            for i, (v, _) in enumerate(adj[u]):  # was: for v, idx — idx is net_str not int, always caused trailing +
                 lp1 = lp1 + x(did, u, v)
-                lp2 = lp2 + x(did, v, u)
-                if idx != len(adj[u]) - 1:
+                if i != len(adj[u]) - 1:
                     lp1 = lp1 + " + "
+            lp = lp + lp1 + " <= 1\n"
+
+    # At most one incoming edge per node per demand
+    lp = lp + "\n\\ Mutual exclusion incoming\n"
+    for d in demands:
+        did = d["id"]
+        for u in adj:
+            lp2 = "\t"
+            for i, (v, _) in enumerate(adj[u]):
+                lp2 = lp2 + x(did, v, u)
+                if i != len(adj[u]) - 1:
                     lp2 = lp2 + " + "
-            lp1 = lp1 + " <= 1\n"
-            lp2 = lp2 + " <= 1\n"
-            lp = lp + lp1 + lp2
+            lp = lp + lp2 + " <= 1\n"
 
     # Link capacities constraints
-    lp = lp + "\nLink capacities constraints\n"
+    lp = lp + "\n\\ Link capacities constraints\n"
     for e in edges:
         u = e[0]
         v = e[1]
@@ -240,15 +263,28 @@ def build_lp():
         lp = lp + " <= " + c + "\n"
 
     # Control of real value flow variables by corresponding indicators
-    lp = lp + "\nControl of real value flow variables by corresponding indicators\n"
+    lp = lp + "\n\\ Control of real value flow variables by corresponding indicators\n"
     for d in demands:
         did = d["id"]
         for u in adj:
-            for v in adj[u]:
-                lp = lp + "\t" + rx(did,u,v[0]) + " " + x(did,u,v[0]) + " <= 0\n"
+            for v, net_str in adj[u]:  # was: for v in adj[u]; v[0] unpacking replaced by named vars
+                cap = networks[net_str]["cost"]
+                lp = lp + "\t" + rx(did,u,v) + " - " + str(cap) + " " + x(did,u,v) + " <= 0\n"
 
+    # lambda_i is the actual flow, bounded by [0, demand rate]
+    lp = lp + "Bounds\n"
+    for d in demands:
+        lp = lp + f"\t0 <= lambda{d['id']} <= {d['rate']}\n"
 
-    lp = lp + "END\n"
+    # x variables are binary path indicators
+    lp = lp + "Binary\n"
+    for d in demands:
+        did = d["id"]
+        for u in adj:
+            for v, _ in adj[u]:
+                lp = lp + "\t" + x(did,u,v) + "\n"
+
+    lp = lp + "End\n"
 
     return lp
 
@@ -295,6 +331,7 @@ def solve():
 
         alpha = 0.0
         flows = [{} for _ in demands]
+        lambdas = [0.0] * len(demands)
 
         with open(sol_path) as sol_f:
             for line in sol_f:
@@ -303,21 +340,23 @@ def solve():
                     continue
                 name = parts[1]
                 try:
-                    val = float(parts[3])
+                    val = float(parts[2])  # was parts[3]: -o (MIP) has no status col; --sol (LP) does
                 except (ValueError, IndexError):
                     continue
 
-                if name == "alpha":
+                if name == "m":  # was "alpha" — objective variable is m
                     alpha = val
-                elif name.startswith("f_"):
-                    tokens = name.split("_")
-                    # f_{i}_{u}_{v}
-                    i = int(tokens[1])
-                    u = tokens[2]
-                    v = tokens[3]
+                elif name.startswith("lambda"):
+                    i = int(name[6:]) - 1  # lambda{id}, 1-indexed
+                    lambdas[i] = val
+                elif name.startswith("rx"):  # was "f_" — flow vars are rx{i}_{u}_{v}
+                    tokens = name[2:].split("_")  # strip "rx", split: ["id","u","v"]
+                    i = int(tokens[0]) - 1        # demand id is 1-indexed
+                    u = tokens[1]
+                    v = tokens[2]
                     flows[i][(u, v)] = val
 
-        return alpha, flows
+        return alpha, flows, lambdas
     finally:
         os.unlink(lp_path)
         if os.path.exists(sol_path):
@@ -332,15 +371,14 @@ if args.lp:
 # --print mode
 
 if getattr(args, "print"):
-    alpha, flows = solve()
+    alpha, flows, lambdas = solve()
     for i, d in enumerate(demands):
-        goodput = round(alpha * d["rate"], 4)
-        print(f"The best goodput for flow demand #{i+1} is {goodput} Mbps")
+        print(f"The best goodput for flow demand #{i+1} is {round(lambdas[i], 4)} Mbps")
     exit(0)
 
 # Mininet emulation
 
-alpha, flows = solve()
+alpha, flows, lambdas = solve()
 
 class LinuxRouter(Node):
     def config(self, **params):
