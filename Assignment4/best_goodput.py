@@ -23,7 +23,6 @@ from mininet.net import Mininet
 from mininet.topo import Topo
 from mininet.cli import CLI
 from mininet.node import Node, OVSBridge
-from mininet.link import TCLink
 
 parser = ArgumentParser(
     description="A tool to define the emulation of a network configured to achieve the best overall goodput under a given set of flow demands."
@@ -172,15 +171,13 @@ def build_lp():
     # constraint for each flow and have m <= attained flow / flow demand
 
     # The flow demand is a constant that we get from the problem statement, while the
-    # attained flow is a variable of the lp problem
-    # lambda_i = -actual_flow (negative at src by sign convention), so
-    # lambda_i = actual flow (positive); m <= lambda_i/rate rewrites as: rate*m - lambda_i <= 0
+    # attained flow is a variable of the lp problem (lambda{i})
     for idx, demand in enumerate(demands):
         lp = lp + f"\t{demand['rate']} m - lambda{demand['id']} <= 0\n"
 
     # For the flow of each commodity in each edge we will use two variables:
-    #   - ri_u_v (real-valued): The flow of commodity i from nodes u to v.
-    #   - i_u_v (binary): Wether the flow of commodity i is using the edge from u to v.
+    #   - rxi_u_v (real-valued): The flow of commodity i from nodes u to v.
+    #   - xi_u_v (binary): Wether the flow of commodity i is using the edge from u to v.
 
     # We then add the flow balance constraints for real valued rate variables, that
     # is, the inflow of a specific commodity has to be equal to the outflow.
@@ -202,7 +199,10 @@ def build_lp():
                 lp1 = lp1 + " = 0\n"
             lp = lp + lp1
 
-    # Flow balance for binary indicator variables
+    # Flow balance for binary indicator variables. For a demand, the number of 
+    # paths going in has to be the same as the ones going out (except for src
+    # and dst). Another constraint later ensures we only go into the same node
+    # at most once for each commodity.
     for d in demands:
         did = d["id"]
         for u in adj:
@@ -226,7 +226,7 @@ def build_lp():
         did = d["id"]
         for u in adj:
             lp1 = "\t"
-            for i, (v, _) in enumerate(adj[u]):  # was: for v, idx — idx is net_str not int, always caused trailing +
+            for i, (v, _) in enumerate(adj[u]):
                 lp1 = lp1 + x(did, u, v)
                 if i != len(adj[u]) - 1:
                     lp1 = lp1 + " + "
@@ -271,7 +271,7 @@ def build_lp():
     for d in demands:
         did = d["id"]
         for u in adj:
-            for v, net_str in adj[u]:  # was: for v in adj[u]; v[0] unpacking replaced by named vars
+            for v, net_str in adj[u]:
                 cap = networks[net_str]["cost"]
                 lp = lp + "\t" + rx(did,u,v) + " - " + str(cap) + " " + x(did,u,v) + " <= 0\n"
 
@@ -418,7 +418,6 @@ for i, d in enumerate(demands):
     src_r = host_router(d["src"])
     dst_r = host_router(d["dst"])
     flow = flows[i]
-    goodput = lambdas[i]
 
     for (u, v), fval in flow.items():
         if fval == 0:
@@ -450,14 +449,6 @@ for i, d in enumerate(demands):
     # Egress (destination router): pop label, deliver locally
     dst_node = mn.get(dst_r)
     dst_node.cmd(f"ip -f mpls route add {label} via inet 0.0.0.0")
-
-    # Rate-limit outgoing traffic at the source host
-    src_node  = mn.get(d["src"])
-    src_iface = next(iter(hosts[d["src"]].keys()))
-    src_node.cmd(
-        f"tc qdisc add dev {d["src"]}-{src_iface} root tbf "
-        f"rate {goodput}mbit burst 32kbit latency 400ms"
-    )
 
 CLI(mn)
 mn.stop()
