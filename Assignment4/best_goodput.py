@@ -360,6 +360,47 @@ if getattr(args, "print"):
 
 flows, lambdas = solve()
 
+import heapq
+
+graph = {r_id: [] for r_id in routers}
+for net_str, net in networks.items():
+    rs = net['routers']
+    cost = net['cost']
+    for i in range(len(rs)):
+        for j in range(i + 1, len(rs)):
+            graph[rs[i]].append((rs[j], cost, net_str))
+            graph[rs[j]].append((rs[i], cost, net_str))
+
+def dijkstra(src):
+    dist = {r: float('inf') for r in routers}
+    prev = {r: None for r in routers}
+    dist[src] = 0
+    pq = [(0, src)]
+    while pq:
+        d, u = heapq.heappop(pq)
+        if d > dist[u]:
+            continue
+        for neighbor, w, link_net in graph[u]:
+            if dist[u] + w < dist[neighbor]:
+                dist[neighbor] = dist[u] + w
+                prev[neighbor] = (u, link_net)
+                heapq.heappush(pq, (dist[neighbor], neighbor))
+    return prev
+
+next_hop = {}
+for src in routers:
+    prev_map = dijkstra(src)
+    next_hop[src] = {}
+    for dst in routers:
+        if dst == src or prev_map[dst] is None:
+            continue
+        cur = dst
+        while prev_map[cur] is not None and prev_map[cur][0] != src:
+            cur = prev_map[cur][0]
+        if prev_map[cur] is not None:
+            next_hop[src][dst] = (cur, prev_map[cur][1])
+
+
 class LinuxRouter(Node):
     def config(self, **params):
         super(LinuxRouter, self).config(**params)
@@ -404,6 +445,26 @@ class NetworkTopo(Topo):
 
 mn = Mininet(topo=NetworkTopo(), controller=None)
 mn.start()
+
+# Add rules on each router for every non-directly-connected network
+for r_id in routers:
+    r_node = mn.get(r_id)
+    directly_connected = {iface['net_str'] for iface in routers[r_id].values()}
+    for dst_net_str, dst_net_info in networks.items():
+        if dst_net_str in directly_connected:
+            continue
+        gateway_ip = None
+        for dest_r in dst_net_info['routers']:
+            if dest_r in next_hop.get(r_id, {}):
+                first_hop_id, shared_net = next_hop[r_id][dest_r]
+                _, gw_iface = find_iface(first_hop_id, shared_net)
+                gateway_ip = gw_iface['address']
+                break
+        if gateway_ip is None:
+            continue
+        prefix = dst_net_info['prefix']
+        if prefix is not None:
+            r_node.cmd(f'ip route add {dst_net_str}/{prefix} via {gateway_ip}')
 
 # Enable MPLS on every router interface
 for r_id in routers:
