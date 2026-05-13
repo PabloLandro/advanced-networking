@@ -436,19 +436,16 @@ for i, d in enumerate(demands):
         next_ip = v_iface["address"]
 
         if u == src_r:
-            # Ingress: push label and forward
             dst_host_iface = next(iter(hosts[d["dst"]].values()))
             dst_ip = dst_host_iface["address"]
-            # When sending packets from demand source towards demand destination
-            # we add the label of this demand
-            r_node.cmd(f"ip route add {dst_ip}/32 encap mpls {label} via {next_ip}")
+            r_node.cmd(f"ip route add {dst_ip}/32 encap mpls {label} via inet {next_ip}")
         else:
-            # Transit: swap/forward
-            r_node.cmd(f"ip -f mpls route add {label} via inet {next_ip}")
+            r_node.cmd(f"ip -f mpls route add {label} as {label} via inet {next_ip}")
 
-    # Egress (destination router): pop label, deliver locally
+    dst_host_iface = next(iter(hosts[d["dst"]].values()))
+    dst_ip = dst_host_iface["address"]
     dst_node = mn.get(dst_r)
-    dst_node.cmd(f"ip -f mpls route add {label} via inet 0.0.0.0")
+    dst_node.cmd(f"ip -f mpls route add {label} via inet {dst_ip}")
 
 CLI(mn)
 mn.stop()
