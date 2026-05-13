@@ -39,11 +39,6 @@ hosts = data['hosts']
 
 networks = {}
 
-#   We can simplify the graph a lot wrt last assignment since now we have point
-#   to point links in each router
-
-
-
 # Preprocess data to compute the router interfaces in each network
 for r_id,router in routers.items():
     for interface in router.values():
@@ -80,6 +75,22 @@ for n in networks.values():
         n["cost"] = 1
 
 
+# Draw graph
+if args.draw:
+    out = "graph Network {"
+    for r in routers:
+        out = out + f"\n\t{r} [shape=circle];"
+    for net in networks.values():
+        n = len(net["routers"])
+        for i in range(n-1):
+            for j in range(i+1, n):
+                out = out + f"\n\t{net['routers'][i]} -- {net['routers'][j]} [label={net['cost']}];"
+    out = out + "\n}"
+    print(out)
+    exit(0)
+
+import heapq
+
 # Find the interface of a router for a given network
 def find_iface(r_id, target_net_str):
     for i_id, iface in routers[r_id].items():
@@ -96,6 +107,37 @@ for net_str, net in networks.items():
         for j in range(i + 1, len(rs)):
             graph[rs[i]].append((rs[j], cost, net_str))
             graph[rs[j]].append((rs[i], cost, net_str))
+
+# compute shortest path for a given source
+def dijkstra(src):
+    dist = {r: float('inf') for r in routers}
+    prev = {r: None for r in routers}
+    dist[src] = 0
+    pq = [(0, src)]
+    while pq:
+        d, u = heapq.heappop(pq)
+        if d > dist[u]:
+            continue
+        for neighbor, w, link_net in graph[u]:
+            if dist[u] + w < dist[neighbor]:
+                dist[neighbor] = dist[u] + w
+                prev[neighbor] = (u, link_net)
+                heapq.heappush(pq, (dist[neighbor], neighbor))
+    return prev
+
+# Next hop is a dict that maps src node to a dict that maps dst to the next node in the shortest path (src->dst)
+next_hop = {}
+for src in routers:
+    prev_map = dijkstra(src)
+    next_hop[src] = {}
+    for dst in routers:
+        if dst == src or prev_map[dst] is None:
+            continue
+        cur = dst
+        while prev_map[cur] is not None and prev_map[cur][0] != src:
+            cur = prev_map[cur][0]
+        if prev_map[cur] is not None:
+            next_hop[src][dst] = (cur, prev_map[cur][1])
 
 
 class LinuxRouter(Node):
