@@ -54,6 +54,7 @@ int sender () {
 	if (ev == EVENT_ERROR)
 	    return -1;
 
+	// TIMEOUT TRIGGERED
 	if (ev == EVENT_TIMEOUT) {  	/* retransmit all pending packets */
 	    ++timeouts;
 	    rtt_timeout_event();
@@ -76,6 +77,7 @@ int sender () {
 	    continue;
 	}
 
+	// RECEIVE ACK
 	if (ev & EVENT_PACKET) {	/* reading ack */
 	    unsigned char ack_pkt[GBN_HEADER];
 	    ssize_t ack_res = receive_packet(ack_pkt, GBN_HEADER);
@@ -125,6 +127,7 @@ int sender () {
 	    }
 	}
 
+	// EVENT FROM STDIN (IGNORE)
 	if (ev & EVENT_INPUT) {
 	    assert(next_seq < base + WINDOW_SIZE);
 	    struct packet * pkt = &(P[next_seq % WINDOW_SIZE]);
@@ -164,7 +167,7 @@ int sender () {
 	    }
 	}
     }
-	sender_shutdown:
+	sender_shutdown:;
     /* We now send the "FIN" packet.  This is just an empty packet.
      * We then immediately exit without waiting for an ack. */
     struct packet * pkt = &(P[base % WINDOW_SIZE]);
