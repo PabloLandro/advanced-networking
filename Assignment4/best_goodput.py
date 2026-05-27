@@ -146,7 +146,6 @@ def find_iface(r_id, target_net_str):
     return None, None
 
 def host_router(h_id):
-    """Return the router directly connected to h_id."""
     iface = next(iter(hosts[h_id].values()))
     return networks[iface["net_str"]]["routers"][0]
 
@@ -160,7 +159,6 @@ def x(demand_id, u_id, v_id):
     return "x" + demand_id + "_" + u_id + "_" + v_id
 
 def build_lp():
-    """Return the LP problem as a CPLEX LP format string."""
     n = len(demands)
 
     # Our objective function will be to maxmimize m, m is the minimal effectiveness
