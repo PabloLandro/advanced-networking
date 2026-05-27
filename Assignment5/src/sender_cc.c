@@ -28,6 +28,7 @@ int sender () {
 
     struct packet P[WINDOW_SIZE];
 
+
     seq_t base = 0;
     seq_t next_seq = 0;
 
@@ -57,21 +58,21 @@ int sender () {
 	    ++timeouts;
 	    rtt_timeout_event();
 	    for (seq_t i = base; i < next_seq; ++i) {
-		struct packet * pkt = &(P[i % WINDOW_SIZE]);
-		if (! send_packet(pkt->bytes, pkt->size)) {
-		    print_perror("failed to send data to the receiver");
-		    return -1;
-		}
-		rtt_segment_sent(i);
-		++packets;
+			struct packet * pkt = &(P[i % WINDOW_SIZE]);
+			if (! send_packet(pkt->bytes, pkt->size)) {
+				print_perror("failed to send data to the receiver");
+				return -1;
+			}
+			rtt_segment_sent(i);
+			++packets;
 	    }
 	    if (start_timer() < 0)
-		return -1;
+			return -1;
 	    /* reset the fast-retransmit trigger */
 	    fast_retransmit_base = base;
 	    nack_count = 0;
 	    if (start_timer() < 0)
-		return -1;
+			return -1;
 	    continue;
 	}
 
@@ -79,48 +80,48 @@ int sender () {
 	    unsigned char ack_pkt[GBN_HEADER];
 	    ssize_t ack_res = receive_packet(ack_pkt, GBN_HEADER);
 	    if (ack_res < 0) {
-		print_perror("failed to read ack packet");
-		return -1;
+			print_perror("failed to read ack packet");
+			return -1;
 	    }
 	    if (ack_res < GBN_HEADER) {
-		print_error("invalid ack packet\n");
+			print_error("invalid ack packet\n");
 	    } else {
-		++acks;
-		seq_t ack_seq = gbn_get_seq(ack_pkt);
-		rtt_ack_received(ack_seq);
-		if (ack_seq == base) {
-		    if (++nack_count >= 3 && fast_retransmit_base <= base) {
-			/* fast retransmission */
-			nack_count = 0;
-			fast_retransmit_base = base + 1;
-			fast_retransmissions += 1;
-			struct packet * pkt = &(P[base % WINDOW_SIZE]);
-			if (! send_packet(pkt->bytes, pkt->size)) {
-			    print_perror("failed to send data to the receiver");
-			    return -1;
+			++acks;
+			seq_t ack_seq = gbn_get_seq(ack_pkt);
+			rtt_ack_received(ack_seq);
+			if (ack_seq == base) {
+				if (++nack_count >= 3 && fast_retransmit_base <= base) {
+				/* fast retransmission */
+				nack_count = 0;
+				fast_retransmit_base = base + 1;
+				fast_retransmissions += 1;
+				struct packet * pkt = &(P[base % WINDOW_SIZE]);
+				if (! send_packet(pkt->bytes, pkt->size)) {
+					print_perror("failed to send data to the receiver");
+					return -1;
+				}
+				rtt_segment_sent(base);
+				++packets;
+				if (start_timer() < 0)
+					return -1;
+				}
+			} else if (ack_seq > base && ack_seq <= next_seq) {	/* valid ack */
+				base = ack_seq;
+				nack_count = 0;
+				if (base != next_seq) {
+					/* we still have pending acks, so, we restart the timer */
+					if (start_timer() < 0)
+						return -1;
+				} else if (state == CLOSING) {
+					/* no more pending acks, if CLOSING, we shutdown the sender */
+					state = CLOSED;
+					goto sender_shutdown;
+				} else {
+					/* no more acks, but still taking application data */
+					stop_timer();
+				}
+				resume_application();
 			}
-			rtt_segment_sent(base);
-			++packets;
-			if (start_timer() < 0)
-			    return -1;
-		    }
-		} else if (ack_seq > base && ack_seq <= next_seq) {	/* valid ack */
-		    base = ack_seq;
-		    nack_count = 0;
-		    if (base != next_seq) {
-			/* we still have pending acks, so, we restart the timer */
-			if (start_timer() < 0)
-			    return -1;
-		    } else if (state == CLOSING) {
-			/* no more pending acks, if CLOSING, we shutdown the sender */
-			state = CLOSED;
-			goto sender_shutdown;
-		    } else {
-			/* no more acks, but still taking application data */
-			stop_timer();
-		    }
-		    resume_application();
-		}
 	    }
 	}
 
@@ -130,48 +131,48 @@ int sender () {
 	    gbn_set_seq(pkt->bytes, next_seq);
 	    ssize_t seg_len = take_data_from_application(pkt->bytes + GBN_HEADER, GBN_MSS);
 	    if (seg_len < 0)
-		return -1;
-	    if (seg_len == 0) {
-		/* No more application data: we close the stream. */
-		stop_application();
-		if (base != next_seq) {
-		    /* If we still have pending acks, we go into the
-		     * CLOSING state, and loop back to wait for those
-		     * acks and, if necessary, retransmit as ususal. */
-		    state = CLOSING;
-		} else {
-		    /* No pending acks, so shutdown immediately */
-		    state = CLOSED;
-		    goto sender_shutdown;
-		}
-	    } else {
-		pkt->size = GBN_HEADER + seg_len;
-		++segments;
-		total_size += seg_len;
-		if (! send_packet(pkt->bytes, pkt->size)) {
-		    print_perror("failed to send data to the receiver");
-		    return -1;
-		}
-		++packets;
-		rtt_segment_sent(next_seq);
-		if (next_seq == base) 
-		    if (start_timer() < 0)
 			return -1;
-		++next_seq;
-		if (next_seq == base + WINDOW_SIZE)
-		    stop_application();
+	    if (seg_len == 0) {
+			/* No more application data: we close the stream. */
+			stop_application();
+			if (base != next_seq) {
+				/* If we still have pending acks, we go into the
+				* CLOSING state, and loop back to wait for those
+				* acks and, if necessary, retransmit as ususal. */
+				state = CLOSING;
+			} else {
+				/* No pending acks, so shutdown immediately */
+				state = CLOSED;
+				goto sender_shutdown;
+			}
+	    } else {
+			pkt->size = GBN_HEADER + seg_len;
+			++segments;
+			total_size += seg_len;
+			if (! send_packet(pkt->bytes, pkt->size)) {
+				print_perror("failed to send data to the receiver");
+				return -1;
+			}
+			++packets;
+			rtt_segment_sent(next_seq);
+			if (next_seq == base) 
+				if (start_timer() < 0)
+					return -1;
+			++next_seq;
+			if (next_seq == base + WINDOW_SIZE)
+				stop_application();
 	    }
 	}
     }
- sender_shutdown:
+	sender_shutdown:
     /* We now send the "FIN" packet.  This is just an empty packet.
      * We then immediately exit without waiting for an ack. */
     struct packet * pkt = &(P[base % WINDOW_SIZE]);
     gbn_set_seq(pkt->bytes, next_seq);
     pkt->size = GBN_HEADER;
     if (! send_packet(pkt->bytes, GBN_HEADER)) {
-	print_perror("failed to send FIN packet to the receiver");
-	return -1;
+		print_perror("failed to send FIN packet to the receiver");
+		return -1;
     }
     return 0;
 }
