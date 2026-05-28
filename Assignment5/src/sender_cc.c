@@ -33,7 +33,8 @@ int sender () {
     size_t fast_retransmissions = 0;
 
 	// Congestion window size
-	size_t WINDOW_SIZE = 1;
+	const size_t INITIAL_WINDOW = 4;
+	size_t WINDOW_SIZE = INITIAL_WINDOW;
 	// Slow start threshold. If (window size <= ssthresh) we do slow-start, else congestion avoidance.
 	size_t ssthresh = MAX_WINDOW_SIZE;
 	// Used to count the number of acks received while in avoidance mode to increase the window.
@@ -86,6 +87,11 @@ int sender () {
 	    /* reset the fast-retransmit trigger */
 	    fast_retransmit_base = base;
 	    nack_count = 0;
+	    ssthresh = WINDOW_SIZE / 2;
+	    if (ssthresh < 1) ssthresh = 1;
+	    WINDOW_SIZE = INITIAL_WINDOW;
+	    cc = SLOW_START;
+	    ack_count = 0;
 	    if (start_timer() < 0)
 			return -1;
 	    continue;
@@ -123,6 +129,10 @@ int sender () {
 					// HALVE CONGESTION WINDOW
 					ssthresh = WINDOW_SIZE / 2;
 					WINDOW_SIZE = ssthresh;
+					cc = FAST_RECOVERY;
+				}
+				else if (cc == FAST_RECOVERY) {
+					WINDOW_SIZE++;
 				}
 			} else if (ack_seq > base && ack_seq <= next_seq) {	/* valid ack */
 				base = ack_seq;
@@ -138,6 +148,10 @@ int sender () {
 						WINDOW_SIZE++;
 						ack_count = 0;
 					}
+				} else if (cc == FAST_RECOVERY) {
+					WINDOW_SIZE = ssthresh;
+					cc = CONG_AVOID;
+					ack_count = 0;
 				}
 				if (base != next_seq) {
 					/* we still have pending acks, so, we restart the timer */
