@@ -143,13 +143,15 @@ int sender () {
 				nack_count = 0;
 				// Augment congestion window
 				if (cc == SLOW_START) {
-					WINDOW_SIZE++;
+					if (WINDOW_SIZE < MAX_WINDOW_SIZE)
+						WINDOW_SIZE++;
 					if (WINDOW_SIZE >= ssthresh)
 						cc = CONG_AVOID;
 				} else if (cc == CONG_AVOID) {
 					ack_count++;
 					if (ack_count >= WINDOW_SIZE) {
-						WINDOW_SIZE++;
+						if (WINDOW_SIZE < MAX_WINDOW_SIZE)
+							WINDOW_SIZE++;
 						ack_count = 0;
 					}
 				} else if (cc == FAST_RECOVERY) {
