@@ -172,7 +172,10 @@ int sender () {
 
 	// EVENT FROM STDIN (IGNORE)
 	if (ev & EVENT_INPUT) {
-	    assert(next_seq < base + WINDOW_SIZE);
+	    if (next_seq >= base + WINDOW_SIZE) {
+		stop_application();
+		continue;
+	    }
 	    struct packet * pkt = &(P[next_seq % WINDOW_SIZE]);
 	    gbn_set_seq(pkt->bytes, next_seq);
 	    ssize_t seg_len = take_data_from_application(pkt->bytes + GBN_HEADER, GBN_MSS);
