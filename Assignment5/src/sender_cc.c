@@ -32,8 +32,12 @@ int sender () {
     size_t total_size = 0;
     size_t fast_retransmissions = 0;
 
+	// Congestion window size
 	size_t WINDOW_SIZE = 1;
+	// Slow start threshold. If (window size <= ssthresh) we do slow-start, else congestion avoidance.
 	size_t ssthresh = MAX_WINDOW_SIZE;
+	// Used to count the number of acks received while in avoidance mode to increase the window.
+	size_t ack_count = 0;
 	enum cc_state cc = SLOW_START;
 
     struct packet P[MAX_WINDOW_SIZE];
@@ -116,10 +120,25 @@ int sender () {
 					++packets;
 					if (start_timer() < 0)
 						return -1;
+					// HALVE CONGESTION WINDOW
+					ssthresh = WINDOW_SIZE / 2;
+					WINDOW_SIZE = ssthresh;
 				}
 			} else if (ack_seq > base && ack_seq <= next_seq) {	/* valid ack */
 				base = ack_seq;
 				nack_count = 0;
+				// Augment congestion window
+				if (cc == SLOW_START) {
+					WINDOW_SIZE++;
+					if (WINDOW_SIZE >= ssthresh)
+						cc = CONG_AVOID;
+				} else if (cc == CONG_AVOID) {
+					ack_count++;
+					if (ack_count >= WINDOW_SIZE) {
+						WINDOW_SIZE++;
+						ack_count = 0;
+					}
+				}
 				if (base != next_seq) {
 					/* we still have pending acks, so, we restart the timer */
 					if (start_timer() < 0)
@@ -172,7 +191,7 @@ int sender () {
 				if (start_timer() < 0)
 					return -1;
 			++next_seq;
-			if (next_seq == base + )
+			if (next_seq == base + WINDOW_SIZE) {
 				stop_application();
 	    }
 	}
