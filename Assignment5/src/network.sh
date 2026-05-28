@@ -19,8 +19,8 @@ create_host_router () {
     sudo ip netns exec R$n sysctl net.ipv4.ip_forward=1
     # enable ping for the world on both the host and the router.
     # https://docs.kernel.org/networking/ip-sysctl.html#ip-sysctl
-    sudo ip netns exec R$n sysctl net.ipv4.ping_group_range='0 4294967294'
-    sudo ip netns exec H$n sysctl net.ipv4.ping_group_range='0 4294967294'
+    sudo ip netns exec R$n sysctl net.ipv4.ping_group_range='0 2147483647'
+    sudo ip netns exec H$n sysctl net.ipv4.ping_group_range='0 2147483647'
 }
 
 delete_host_router () {
