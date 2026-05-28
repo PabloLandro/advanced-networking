@@ -17,6 +17,12 @@ enum sender_state {
     CLOSED
 };
 
+enum cc_state {
+	SLOW_START,
+	CONG_AVOID,
+	FAST_RECOVERY
+};
+
 int sender () {
     /* statistics and counters */
     size_t packets = 0;
@@ -26,7 +32,11 @@ int sender () {
     size_t total_size = 0;
     size_t fast_retransmissions = 0;
 
-    struct packet P[WINDOW_SIZE];
+	size_t WINDOW_SIZE = 1;
+	size_t ssthresh = MAX_WINDOW_SIZE;
+	enum cc_state cc = SLOW_START;
+
+    struct packet P[MAX_WINDOW_SIZE];
 
 
     seq_t base = 0;
@@ -93,19 +103,19 @@ int sender () {
 			rtt_ack_received(ack_seq);
 			if (ack_seq == base) {
 				if (++nack_count >= 3 && fast_retransmit_base <= base) {
-				/* fast retransmission */
-				nack_count = 0;
-				fast_retransmit_base = base + 1;
-				fast_retransmissions += 1;
-				struct packet * pkt = &(P[base % WINDOW_SIZE]);
-				if (! send_packet(pkt->bytes, pkt->size)) {
-					print_perror("failed to send data to the receiver");
-					return -1;
-				}
-				rtt_segment_sent(base);
-				++packets;
-				if (start_timer() < 0)
-					return -1;
+					/* fast retransmission */
+					nack_count = 0;
+					fast_retransmit_base = base + 1;
+					fast_retransmissions += 1;
+					struct packet * pkt = &(P[base % WINDOW_SIZE]);
+					if (! send_packet(pkt->bytes, pkt->size)) {
+						print_perror("failed to send data to the receiver");
+						return -1;
+					}
+					rtt_segment_sent(base);
+					++packets;
+					if (start_timer() < 0)
+						return -1;
 				}
 			} else if (ack_seq > base && ack_seq <= next_seq) {	/* valid ack */
 				base = ack_seq;
@@ -162,7 +172,7 @@ int sender () {
 				if (start_timer() < 0)
 					return -1;
 			++next_seq;
-			if (next_seq == base + WINDOW_SIZE)
+			if (next_seq == base + )
 				stop_application();
 	    }
 	}

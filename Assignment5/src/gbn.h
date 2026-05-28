@@ -6,8 +6,8 @@
 #define GBN_MSS			1000	/* bytes */
 #define GBN_HEADER		4	/* bytes */
 
-#ifndef WINDOW_SIZE
-#define WINDOW_SIZE		200	/* packets */
+#ifndef MAX_WINDOW_SIZE
+#define MAX_WINDOW_SIZE		1024	/* packets */
 #endif
 
 typedef uint32_t seq_t;
