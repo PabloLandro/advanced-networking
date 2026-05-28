@@ -1,3 +1,7 @@
+// as source I used:
+// https://www.rfc-editor.org/rfc/rfc5681.html#page-4
+// https://en.wikipedia.org/wiki/TCP_congestion_control
+
 #include <stddef.h>
 #include <unistd.h>
 #include <assert.h>
@@ -74,7 +78,7 @@ int sender () {
 	    ++timeouts;
 	    rtt_timeout_event();
 	    for (seq_t i = base; i < next_seq; ++i) {
-			struct packet * pkt = &(P[i % WINDOW_SIZE]);
+			struct packet * pkt = &(P[i % MAX_WINDOW_SIZE]);
 			if (! send_packet(pkt->bytes, pkt->size)) {
 				print_perror("failed to send data to the receiver");
 				return -1;
@@ -117,7 +121,7 @@ int sender () {
 					nack_count = 0;
 					fast_retransmit_base = base + 1;
 					fast_retransmissions += 1;
-					struct packet * pkt = &(P[base % WINDOW_SIZE]);
+					struct packet * pkt = &(P[base % MAX_WINDOW_SIZE]);
 					if (! send_packet(pkt->bytes, pkt->size)) {
 						print_perror("failed to send data to the receiver");
 						return -1;
@@ -176,7 +180,7 @@ int sender () {
 		stop_application();
 		continue;
 	    }
-	    struct packet * pkt = &(P[next_seq % WINDOW_SIZE]);
+	    struct packet * pkt = &(P[next_seq % MAX_WINDOW_SIZE]);
 	    gbn_set_seq(pkt->bytes, next_seq);
 	    ssize_t seg_len = take_data_from_application(pkt->bytes + GBN_HEADER, GBN_MSS);
 	    if (seg_len < 0)
@@ -217,7 +221,7 @@ int sender () {
 	sender_shutdown:;
     /* We now send the "FIN" packet.  This is just an empty packet.
      * We then immediately exit without waiting for an ack. */
-    struct packet * pkt = &(P[base % WINDOW_SIZE]);
+    struct packet * pkt = &(P[base % MAX_WINDOW_SIZE]);
     gbn_set_seq(pkt->bytes, next_seq);
     pkt->size = GBN_HEADER;
     if (! send_packet(pkt->bytes, GBN_HEADER)) {
