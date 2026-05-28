@@ -193,6 +193,7 @@ int sender () {
 			++next_seq;
 			if (next_seq == base + WINDOW_SIZE) {
 				stop_application();
+			}
 	    }
 	}
     }
